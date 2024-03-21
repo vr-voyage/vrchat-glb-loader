@@ -8,10 +8,15 @@ using VRC.Udon;
 
 namespace VoyageVoyage
 {
+    [UdonBehaviourSyncMode(BehaviourSyncMode.Manual)]
     public class GLBLoader : UdonSharpBehaviour
     {
-
+        
         public VRCUrl glbUrl;
+
+        [UdonSynced]
+        VRCUrl syncedUrl;
+        public Transform mainParent;
         public MeshFilter[] filters;
 
         public MeshRenderer temporaryRenderer;
@@ -21,6 +26,33 @@ namespace VoyageVoyage
         object[] m_bufferViews;
         object[] m_accessors;
         Material[] m_materials;
+
+        void Clear()
+        {
+            m_bufferViews = new object[0];
+            m_accessors = new object[0];
+            m_materials = new Material[0];
+            int nFilters = filters.Length;
+            for (int f = 0; f < nFilters; f++)
+            {
+                MeshFilter filter = filters[f];
+                filter.sharedMesh = null;
+                filter.name = "NotSet";
+                Transform filterTransform = filter.transform;
+                
+                filterTransform.parent = mainParent;
+                filterTransform.position = Vector3.zero;
+                filterTransform.rotation = Quaternion.identity;
+                filterTransform.localScale = Vector3.one;
+                
+                // FIXME Create this in Start !
+                MeshRenderer renderer = filter.GetComponent<MeshRenderer>();
+                if (renderer != null)
+                {
+                    renderer.sharedMaterials = m_materials;
+                }
+            }
+        }
 
         void ReportError(string tag, string message)
         {
@@ -34,6 +66,7 @@ namespace VoyageVoyage
 
         public override void OnStringLoadSuccess(IVRCStringDownload result)
         {
+            Clear();
             ParseGLB(result.ResultBytes);
         }
 
@@ -44,8 +77,56 @@ namespace VoyageVoyage
 
         void Start()
         {
-            VRCStringDownloader.LoadUrl(glbUrl, (VRC.Udon.Common.Interfaces.IUdonEventReceiver)this);
+            //SetURL(glbUrl);
+        }
 
+        public void SetURL(VRCUrl url)
+        {
+            glbUrl = url;
+            VRCStringDownloader.LoadUrl(glbUrl, (VRC.Udon.Common.Interfaces.IUdonEventReceiver)this);
+            Sync();
+        }
+
+        void Sync()
+        {
+            VRCPlayerApi localPlayer = Networking.LocalPlayer;
+            if (localPlayer == null)
+            {
+                ReportError("VRChat", "Local player is null...");
+                return;
+            }
+
+            if (Networking.GetOwner(gameObject) == localPlayer)
+            {
+                NowImTheOwner();
+            }
+            else
+            {
+                Networking.SetOwner(localPlayer, gameObject);
+            }
+        }
+
+        public override void OnOwnershipTransferred(VRCPlayerApi player)
+        {
+            if (player == Networking.LocalPlayer)
+            {
+                NowImTheOwner();
+            }
+        }
+
+        void NowImTheOwner()
+        {
+            syncedUrl = glbUrl;
+            RequestSerialization();
+        }
+
+        public override void OnDeserialization()
+        {
+            if (syncedUrl != glbUrl)
+            {
+                glbUrl = syncedUrl;
+                VRCStringDownloader.LoadUrl(glbUrl, (VRC.Udon.Common.Interfaces.IUdonEventReceiver)this);
+            }
         }
 
         void DumpList(string name, DataList list)
@@ -151,37 +232,6 @@ namespace VoyageVoyage
         const int accessorCountIndex = 2;
         const int accessorTypeIndex = 3;
 
-        bool GetBufferViewInfo(DataToken bufferViewToken, out int byteOffset, out int byteLength, out int target)
-        {
-            byteLength = 0;
-            byteOffset = 0;
-            target = 0;
-            if (bufferViewToken.TokenType != TokenType.DataDictionary) return false;
-
-            DataDictionary bufferView = (DataDictionary)bufferViewToken;
-            if (!HasKeys(bufferView, "byteLength", "byteOffset", "target")) return false;
-
-            DataToken bufferByteLength = bufferView["byteLength"];
-            DataToken bufferByteOffset = bufferView["byteOffset"];
-            DataToken bufferTarget = bufferView["target"];
-
-            if ((bufferByteLength.TokenType != TokenType.Double)
-                || (bufferByteOffset.TokenType != TokenType.Double)
-                || (bufferTarget.TokenType != TokenType.Double))
-            {
-                return false;
-            }
-
-            byteLength = (int)((double)bufferByteLength);
-            byteOffset = (int)((double)bufferByteOffset);
-            target = (int)((double)bufferTarget);
-
-            ReportInfo("GLB", $"Parsing buffer : offset {byteOffset}, length {byteLength}");
-
-
-            return true;
-        }
-
         bool GetSubmeshInfo(DataDictionary primitives, out int positionsView, out int normalsView, out int uvsView, out int indicesView, out int materialIndex)
         {
             positionsView = 0;
@@ -279,7 +329,7 @@ namespace VoyageVoyage
                 views[v + meshInfoUvsViewIndex] = uvsView;
                 views[v + meshInfoIndicesViewIndex] = indicesView;
                 materialsIndices[m] = materialIndex;
-                ReportInfo("GetMeshInfo", $"{name} : Mesh {m} - {positionsView},{normalsView},{uvsView},{indicesView},{materialIndex}");
+                //ReportInfo("GetMeshInfo", $"{name} : Mesh {m} - {positionsView},{normalsView},{uvsView},{indicesView},{materialIndex}");
                 v += meshInfoNIndices;
                 actualNumberOfMeshes += 1;
             }
@@ -346,7 +396,7 @@ namespace VoyageVoyage
             int uvsView = meshInfo[startOffset + meshInfoUvsViewIndex];
             int indicesView = meshInfo[startOffset + meshInfoIndicesViewIndex];
 
-            ReportInfo("LoadMeshFrom", $"positionsView : {positionsView}, normalsView : {normalsView}, uvsView : {uvsView}, indicesView : {indicesView}");
+            //ReportInfo("LoadMeshFrom", $"positionsView : {positionsView}, normalsView : {normalsView}, uvsView : {uvsView}, indicesView : {indicesView}");
 
             if ((positionsView >= nAccessors) | (normalsView >= nAccessors) | (uvsView >= nAccessors) | (indicesView >= nAccessors))
             {
@@ -400,7 +450,7 @@ namespace VoyageVoyage
                 return false;
             }
 
-            ReportInfo("LoadMesh", $"nSubmeshes : {nSubmeshes}");
+            ReportInfo("LoadMesh", $"$Mesh : {name} nSubmeshes : {nSubmeshes}");
 
             CombineInstance[] instances = new CombineInstance[nSubmeshes];
             for (int s = 0; s < nSubmeshes; s++)
@@ -412,7 +462,39 @@ namespace VoyageVoyage
                 instances[s] = instance;
             }
 
-            mesh.CombineMeshes(instances);
+            mesh.CombineMeshes(instances, false);
+            return true;
+        }
+
+        bool GetBufferViewInfo(DataToken bufferViewToken, out int byteOffset, out int byteLength, out int target)
+        {
+            byteLength = 0;
+            byteOffset = 0;
+            target = 0;
+            if (bufferViewToken.TokenType != TokenType.DataDictionary) return false;
+
+            DataDictionary bufferView = (DataDictionary)bufferViewToken;
+            bool checkKeys = CheckFields(bufferView,
+                "byteLength", TokenType.Double,
+                "byteOffset", TokenType.Double);
+
+            if (!checkKeys)
+            {
+                ReportError("GetBufferViewInfo", $"This buffer view lacks 'byteLength' and 'byteOffset' : {bufferViewToken}");
+                return false;
+            }
+
+            byteLength = (int)((double)bufferView["byteLength"]);
+            byteOffset = (int)((double)bufferView["byteOffset"]);
+
+            if (bufferView.TryGetValue("target", TokenType.Double, out DataToken targetToken))
+            {
+                target = (int)((double)targetToken);
+            }
+
+            //ReportInfo("GLB", $"Parsing buffer : offset {byteOffset}, length {byteLength}");
+
+
             return true;
         }
 
@@ -427,6 +509,9 @@ namespace VoyageVoyage
                     int offset = dataOffset + localOffset;
                     switch (target)
                     {
+                        case 0:
+                            views[v] = new int[] { offset, nBytes };
+                            break;
                         case 34962:
                             views[v] = GetFloats(glb, offset, nBytes);
                             break;
@@ -434,7 +519,7 @@ namespace VoyageVoyage
                             views[v] = GetUshorts(glb, offset, nBytes);
                             break;
                         default:
-                            ReportError("GLB", $"Unhandled buffer view target {target}");
+                            ReportInfo("GLB", $"Unhandled buffer view target {target}");
                             views[v] = null;
                             break;
                     }
@@ -519,13 +604,15 @@ namespace VoyageVoyage
             return new Color((float)(double)list[0], (float)(double)list[1], (float)(double)list[2], (float)(double)list[3]);
         }
 
-        bool ParseNode(DataDictionary node, out int meshIndex, out string name, out Vector3 position, out Quaternion rotation, out Vector3 scale)
+        bool ParseNode(DataDictionary node, out int meshIndex, out string name, out Vector3 position, out Quaternion rotation, out Vector3 scale, out int[] children)
         {
             meshIndex = 0;
             name = "";
             position = Vector3.zero;
             rotation = Quaternion.identity;
             scale = Vector3.one;
+            children = new int[0];
+            
             bool check = CheckFields(node,
                 "mesh", TokenType.Double,
                 "name", TokenType.String);
@@ -559,6 +646,27 @@ namespace VoyageVoyage
                 scale = DataListToVector3((DataList)scaleToken);
             }
 
+            if (node.TryGetValue("children", TokenType.DataList, out DataToken childrenToken))
+            {
+
+                DataList childrenList = (DataList)childrenToken;
+
+                int nChildren = childrenList.Count;
+                children = new int[nChildren];
+
+                for (int c = 0; c < nChildren; c++)
+                {
+                    if (childrenList.TryGetValue(c, TokenType.Double, out DataToken nodeIndexToken))
+                    {
+                        children[c] = (int)(double)nodeIndexToken;
+                    }
+                    else
+                    {
+                        children[c] = -1;
+                    }
+                }
+            }
+
             return true;
         }
 
@@ -571,13 +679,24 @@ namespace VoyageVoyage
             {
                 DataToken nodeToken = nodes[n];
                 if (nodeToken.TokenType != TokenType.DataDictionary) continue;
-                ParseNode((DataDictionary)nodeToken, out int meshIndex, out string name, out Vector3 position, out Quaternion rotation, out Vector3 scale);
+                ParseNode((DataDictionary)nodeToken, out int meshIndex, out string name, out Vector3 position, out Quaternion rotation, out Vector3 scale, out int[] children);
                 if (meshIndex > maxMesh) return;
                 filters[meshIndex].name = name;
                 var transform = filters[meshIndex].transform;
                 transform.localPosition = position;
                 transform.localRotation = rotation;
                 transform.localScale = scale;
+                int nChildren = children.Length;
+                Transform parentTransform = filters[meshIndex].transform;
+                for (int c = 0; c < nChildren; c++)
+                {
+                    int childIndex = children[c];
+                    if ((childIndex < 0) | (childIndex > maxMesh))
+                    {
+                        continue;
+                    }
+                    filters[childIndex].transform.SetParent(parentTransform, false);
+                }
             }
         }
 
