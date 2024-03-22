@@ -17,39 +17,78 @@ namespace VoyageVoyage
         [UdonSynced]
         VRCUrl syncedUrl;
         public Transform mainParent;
-        public MeshFilter[] filters;
+        public GameObject nodePrefab;
 
         public MeshRenderer temporaryRenderer;
         public Material baseMaterial;
         
-
         object[] m_bufferViews;
         object[] m_accessors;
         Material[] m_materials;
+        object[] m_meshesInfo;
+
+        string DictOptString(DataDictionary dict, string fieldName, string defaultValue)
+        {
+            string retValue = defaultValue;
+            if (dict.TryGetValue(fieldName, TokenType.String, out DataToken stringToken))
+            {
+                return (string)stringToken;
+            }
+            return retValue;
+        }
+
+        int DictOptInt(DataDictionary dict, string fieldName, int defaultValue)
+        {
+            int retValue = defaultValue;
+            if (dict.TryGetValue(fieldName, TokenType.Double, out DataToken doubleToken))
+            {
+                return (int)(double)doubleToken;
+            }
+
+            return retValue;
+        }
+
+        Vector3 DictOptVector3(DataDictionary dict, string fieldName, Vector3 defaultValue)
+        {
+            Vector3 retValue = defaultValue;
+            if (dict.TryGetValue(fieldName, TokenType.DataList, out DataToken dataListToken))
+            {
+                DataList list = (DataList)dataListToken;
+                if ((list.Count >= 3) && (IsListComponentType(list, TokenType.Double)))
+                {
+                    retValue = DataListToVector3(list);
+                }
+            }
+            return retValue;
+        }
+
+        Quaternion DictOptQuaternion(DataDictionary dict, string fieldName, Quaternion defaultValue)
+        {
+            Quaternion retValue = defaultValue;
+            if (dict.TryGetValue(fieldName, TokenType.DataList, out DataToken dataListToken))
+            {
+                DataList list = (DataList)dataListToken;
+                if ((list.Count >= 4) && (IsListComponentType(list, TokenType.Double)))
+                {
+                    retValue = DataListToQuaternion(list);
+                }
+            }
+            return retValue;
+        }
 
         void Clear()
         {
             m_bufferViews = new object[0];
             m_accessors = new object[0];
             m_materials = new Material[0];
-            int nFilters = filters.Length;
-            for (int f = 0; f < nFilters; f++)
+            Transform[] children = mainParent.GetComponentsInChildren<Transform>();
+            int nChildren = children.Length;
+            for (int c = 0; c < nChildren; c++)
             {
-                MeshFilter filter = filters[f];
-                filter.sharedMesh = null;
-                filter.name = "NotSet";
-                Transform filterTransform = filter.transform;
-                
-                filterTransform.parent = mainParent;
-                filterTransform.position = Vector3.zero;
-                filterTransform.rotation = Quaternion.identity;
-                filterTransform.localScale = Vector3.one;
-                
-                // FIXME Create this in Start !
-                MeshRenderer renderer = filter.GetComponent<MeshRenderer>();
-                if (renderer != null)
+                /* Because, in Unity, you're a child of yourself... */
+                if (children[c] != mainParent)
                 {
-                    renderer.sharedMaterials = m_materials;
+                    Destroy(children[c].gameObject);
                 }
             }
         }
@@ -179,8 +218,8 @@ namespace VoyageVoyage
                 TokenType type = (TokenType)fieldNamesAndTypes[i + 1];
                 i += 2;
 
-                everythingIsOk |= dictionary.ContainsKey(name);
-                everythingIsOk |= (dictionary[name].TokenType == type);
+                everythingIsOk &= dictionary.ContainsKey(name);
+                everythingIsOk &= (dictionary[name].TokenType == type);
             }
             return everythingIsOk;
         }
@@ -202,11 +241,7 @@ namespace VoyageVoyage
         }
         object[] ParseAccessor(DataDictionary accessorInfo)
         {
-            bool check = CheckFields(accessorInfo,
-                "bufferView", TokenType.Double,
-                "componentType", TokenType.Double,
-                "count", TokenType.Double,
-                "type", TokenType.String);
+            bool check = CheckFields(accessorInfo, "bufferView", TokenType.Double);
             if (!check)
             {
                 ReportError("ParseAccessor", $"Unexpected format for Accessor Info : {accessorInfo}");
@@ -222,10 +257,10 @@ namespace VoyageVoyage
 
             return new object[] {
                 m_bufferViews[bufferViewIndex],
-                (int)(double)accessorInfo["componentType"],
-                (int)(double)accessorInfo["count"],
-                (string)accessorInfo["type"]
-                };
+                DictOptInt(accessorInfo, "componentType", -1),
+                DictOptInt(accessorInfo, "count", 0),
+                DictOptString(accessorInfo, "type", "")
+            };
         }
         const int accessorBufferIndex = 0;
         const int accessorComponentTypeIndex = 1;
@@ -234,10 +269,10 @@ namespace VoyageVoyage
 
         bool GetSubmeshInfo(DataDictionary primitives, out int positionsView, out int normalsView, out int uvsView, out int indicesView, out int materialIndex)
         {
-            positionsView = 0;
-            normalsView = 0;
-            uvsView = 0;
-            indicesView = 0;
+            positionsView = -1;
+            normalsView = -1;
+            uvsView = -1;
+            indicesView = -1;
             materialIndex = -1;
 
             bool check = CheckFields(primitives, 
@@ -252,8 +287,7 @@ namespace VoyageVoyage
             DataDictionary attributes = (DataDictionary)primitives["attributes"];
             check = CheckFields(attributes,
                 "POSITION", TokenType.Double,
-                "NORMAL", TokenType.Double,
-                "TEXCOORD_0", TokenType.Double);
+                "NORMAL", TokenType.Double);
             if (!check)
             {
                 ReportError("Getsubmeshinfo", $"Invalid attributes in {primitives}");
@@ -264,13 +298,10 @@ namespace VoyageVoyage
 
             positionsView = (int)((double)attributes["POSITION"]);
             normalsView = (int)((double)attributes["NORMAL"]);
-            uvsView = (int)((double)attributes["TEXCOORD_0"]);
             indicesView = (int)((double)primitives["indices"]);
-            if (primitives.TryGetValue("material", TokenType.Double, out DataToken materialToken))
-            {
-                materialIndex = (int)(double)materialToken;
-            }
 
+            uvsView = DictOptInt(primitives, "TEXCOORD_0", -1);
+            materialIndex = DictOptInt(primitives, "material", -1);
             return true;
         }
 
@@ -405,10 +436,9 @@ namespace VoyageVoyage
             }
             object positionsAccessor = m_accessors[positionsView];
             object normalsAccessor = m_accessors[normalsView];
-            object uvsAccessor = m_accessors[uvsView];
             object indicesAccessor = m_accessors[indicesView];
 
-            if ((positionsAccessor == null) | (normalsAccessor == null) | (uvsAccessor == null) | (indicesAccessor == null))
+            if ((positionsAccessor == null) | (normalsAccessor == null) | (indicesAccessor == null))
             {
                 ReportError("LoadMesh", "Some buffers were null...");
                 return m;
@@ -416,23 +446,35 @@ namespace VoyageVoyage
 
             object positionsBuffer = ((object[])positionsAccessor)[accessorBufferIndex];
             object normalsBuffer = ((object[])normalsAccessor)[accessorBufferIndex];
-            object uvsBuffer = ((object[])uvsAccessor)[accessorBufferIndex];
             object indicesBuffer = ((object[])indicesAccessor)[accessorBufferIndex];
+
             
             System.Type floatArray = typeof(float[]);
             System.Type ushortArray = typeof(ushort[]);
             if ((positionsBuffer.GetType() != floatArray)
                 | (normalsBuffer.GetType() != floatArray)
-                | (uvsBuffer.GetType() != floatArray)
                 | (indicesBuffer.GetType() != ushortArray))
             {
-                ReportError("LoadMesh", $"Some buffer views types are invalid : {positionsBuffer.GetType()}, {normalsBuffer.GetType()}, {uvsBuffer.GetType()}, {indicesBuffer.GetType()}");
+                ReportError("LoadMesh", $"Some buffer views types are invalid : {positionsBuffer.GetType()}, {normalsBuffer.GetType()}, {indicesBuffer.GetType()}");
                 return m;
             }
 
             m.vertices = floatsToVector3((float[])positionsBuffer);
             m.normals = floatsToVector3((float[])normalsBuffer);
-            m.uv = floatsToVector2((float[])uvsBuffer);
+
+            if (uvsView > 0)
+            {
+                object uvsAccessor = m_accessors[uvsView];
+                if (uvsAccessor != null)
+                {
+                    object uvsBuffer = ((object[])uvsAccessor)[accessorBufferIndex];
+                    if (uvsBuffer.GetType() == floatArray)
+                    {
+                        m.uv = floatsToVector2((float[])uvsBuffer);
+                    }
+                } 
+            }
+            
             m.SetIndices((ushort[])indicesBuffer, MeshTopology.Triangles, 0);
 
             return m;
@@ -466,36 +508,11 @@ namespace VoyageVoyage
             return true;
         }
 
-        bool GetBufferViewInfo(DataToken bufferViewToken, out int byteOffset, out int byteLength, out int target)
+        void GetBufferViewInfo(DataDictionary bufferView, out int byteOffset, out int byteLength, out int target)
         {
-            byteLength = 0;
-            byteOffset = 0;
-            target = 0;
-            if (bufferViewToken.TokenType != TokenType.DataDictionary) return false;
-
-            DataDictionary bufferView = (DataDictionary)bufferViewToken;
-            bool checkKeys = CheckFields(bufferView,
-                "byteLength", TokenType.Double,
-                "byteOffset", TokenType.Double);
-
-            if (!checkKeys)
-            {
-                ReportError("GetBufferViewInfo", $"This buffer view lacks 'byteLength' and 'byteOffset' : {bufferViewToken}");
-                return false;
-            }
-
-            byteLength = (int)((double)bufferView["byteLength"]);
-            byteOffset = (int)((double)bufferView["byteOffset"]);
-
-            if (bufferView.TryGetValue("target", TokenType.Double, out DataToken targetToken))
-            {
-                target = (int)((double)targetToken);
-            }
-
-            //ReportInfo("GLB", $"Parsing buffer : offset {byteOffset}, length {byteLength}");
-
-
-            return true;
+            byteLength = DictOptInt(bufferView, "byteLength", 0);
+            byteOffset = DictOptInt(bufferView, "byteOffset", 0);
+            target = DictOptInt(bufferView, "target", 0);
         }
 
         object[] ParseBufferViews(DataList bufferViews, byte[] glb, int dataOffset)
@@ -504,73 +521,51 @@ namespace VoyageVoyage
             object[] views = new object[nViews];
             for (int v = 0; v < nViews; v++)
             {
-                if (GetBufferViewInfo(bufferViews[v], out int localOffset, out int nBytes, out int target))
+                DataToken bufferViewToken = bufferViews[v];
+                if (bufferViewToken.TokenType != TokenType.DataDictionary)
                 {
-                    int offset = dataOffset + localOffset;
-                    switch (target)
-                    {
-                        case 0:
-                            views[v] = new int[] { offset, nBytes };
-                            break;
-                        case 34962:
-                            views[v] = GetFloats(glb, offset, nBytes);
-                            break;
-                        case 34963:
-                            views[v] = GetUshorts(glb, offset, nBytes);
-                            break;
-                        default:
-                            ReportInfo("GLB", $"Unhandled buffer view target {target}");
-                            views[v] = null;
-                            break;
-                    }
+                    views[v] = null;
                 }
+                DataDictionary bufferView = (DataDictionary)bufferViewToken;
+                GetBufferViewInfo(bufferView, out int localOffset, out int nBytes, out int target);
+
+                int offset = dataOffset + localOffset;
+                switch (target)
+                {
+                    case 0:
+                        views[v] = new int[] { offset, nBytes };
+                        break;
+                    case 34962:
+                        views[v] = GetFloats(glb, offset, nBytes);
+                        break;
+                    case 34963:
+                        views[v] = GetUshorts(glb, offset, nBytes);
+                        break;
+                    default:
+                        ReportInfo("GLB", $"Unhandled buffer view target {target}");
+                        views[v] = null;
+                        break;
+                }
+
             }
             return views;
         }
 
-        void ParseAndShowMeshes(DataList meshesInfo, MeshFilter[] filters)
+        void ParseAndShowMeshes(DataList meshesInfo)
         {
-            int nFilters = filters.Length;
             int nMeshes = meshesInfo.Count;
 
-            int f = 0;
+            m_meshesInfo = new object[nMeshes];
 
             for (int m = 0; m < nMeshes; m++)
             {
-                if (f >= nFilters) break;
-
                 DataToken meshInfoToken = meshesInfo[m];
                 if (meshInfoToken.TokenType != TokenType.DataDictionary) continue;
 
                 bool gotAMesh = LoadMesh((DataDictionary)meshInfoToken, out string name, out Mesh mesh, out int[] materialsIndices);
                 if (!gotAMesh) continue;
 
-                filters[f].sharedMesh = mesh;
-                filters[f].gameObject.name = name;
-                MeshRenderer renderer = filters[f].GetComponent<MeshRenderer>();
-
-                if (renderer != null)
-                {
-                    int nIndices = materialsIndices.Length;
-                    Material[] sharedMaterials = new Material[nIndices];
-                    int nKnownMaterials = m_materials.Length;
-
-                    for (int sharedMatIndex = 0; sharedMatIndex < nIndices; sharedMatIndex++)
-                    {
-                        int materialIndex = materialsIndices[sharedMatIndex];
-                        if ((materialIndex >= 0) & (materialIndex < nKnownMaterials))
-                        {
-                            sharedMaterials[sharedMatIndex] = m_materials[materialIndex];
-                        }
-                        else
-                        {
-                            sharedMaterials[sharedMatIndex] = NewMaterial();
-                        }
-                    }
-                    renderer.sharedMaterials = sharedMaterials;
-                }
-                
-                f++;
+                m_meshesInfo[m] = new object[] { mesh, materialsIndices };
             }
         }
 
@@ -587,15 +582,11 @@ namespace VoyageVoyage
 
         Quaternion DataListToQuaternion(DataList list)
         {
-            if (list.Count < 4) return Quaternion.identity;
-            if (!IsListComponentType(list, TokenType.Double)) return Quaternion.identity;
             return new Quaternion((float)(double)list[0], (float)(double)list[1], (float)(double)list[2], (float)(double)list[3]);
         }
 
         Vector3 DataListToVector3(DataList list)
         {
-            if (list.Count < 3) return Vector3.zero;
-            if (!IsListComponentType(list, TokenType.Double)) return Vector3.zero;
             return new Vector3((float)(double)list[0], (float)(double)list[1], (float)(double)list[2]);
         }
 
@@ -604,47 +595,16 @@ namespace VoyageVoyage
             return new Color((float)(double)list[0], (float)(double)list[1], (float)(double)list[2], (float)(double)list[3]);
         }
 
+
+
         bool ParseNode(DataDictionary node, out int meshIndex, out string name, out Vector3 position, out Quaternion rotation, out Vector3 scale, out int[] children)
         {
-            meshIndex = 0;
-            name = "";
-            position = Vector3.zero;
-            rotation = Quaternion.identity;
-            scale = Vector3.one;
+            meshIndex = DictOptInt(node, "mesh", -1);
+            name = DictOptString(node, "name", "");
+            position = DictOptVector3(node, "translation", Vector3.zero);
+            rotation = DictOptQuaternion(node, "rotation", Quaternion.identity);
+            scale = DictOptVector3(node, "scale", Vector3.one);
             children = new int[0];
-            
-            bool check = CheckFields(node,
-                "mesh", TokenType.Double,
-                "name", TokenType.String);
-            if (!check)
-            {
-                ReportError("ParseNode", $"Ill formed node ? {node}");
-                return false;
-            }
-
-            meshIndex = (int)(double)node["mesh"];
-            name = (string)node["name"];
-
-            if (node.TryGetValue("translation", TokenType.DataList, out DataToken translationToken))
-            {
-                Vector3 glToDxPosition = DataListToVector3((DataList)translationToken);
-                
-                //glToDxPosition.x *= -1;
-                position = glToDxPosition;
-            }
-
-            if (node.TryGetValue("rotation", TokenType.DataList, out DataToken rotationToken))
-            {
-                Quaternion q = DataListToQuaternion((DataList)rotationToken);
-                /*q.x *= -1;
-                q.w *= -1;*/
-                rotation = q;
-            }
-
-            if (node.TryGetValue("scale", TokenType.DataList, out DataToken scaleToken))
-            {
-                scale = DataListToVector3((DataList)scaleToken);
-            }
 
             if (node.TryGetValue("children", TokenType.DataList, out DataToken childrenToken))
             {
@@ -670,32 +630,91 @@ namespace VoyageVoyage
             return true;
         }
 
+        void SetupMesh(GameObject node, int meshIndex, int maxMeshIndex)
+        {
+            if ((meshIndex < 0) | (meshIndex > maxMeshIndex)) return;
+            object meshInfoArray = m_meshesInfo[meshIndex];
+            if (meshInfoArray == null) return;
+
+            object[] meshInfo = (object[])m_meshesInfo[meshIndex];
+            if (meshInfo == null) return;
+
+            // FIXME Magic values
+            Mesh mesh = (Mesh)meshInfo[0];
+            int[] materialsIndices = (int[])meshInfo[1];
+
+            if (mesh == null) return;
+
+ 
+            MeshFilter filter = node.GetComponent<MeshFilter>();
+            filter.sharedMesh = mesh;
+
+            if (materialsIndices == null) return;
+            MeshRenderer renderer = filter.GetComponent<MeshRenderer>();
+
+            int nIndices = materialsIndices.Length;
+            int nKnownMaterials = m_materials.Length;
+
+            Material[] sharedMaterials = new Material[nIndices];
+
+            for (int sharedMatIndex = 0; sharedMatIndex < nIndices; sharedMatIndex++)
+            {
+                int materialIndex = materialsIndices[sharedMatIndex];
+                if ((materialIndex >= 0) & (materialIndex < nKnownMaterials))
+                {
+                    sharedMaterials[sharedMatIndex] = m_materials[materialIndex];
+                }
+                else
+                {
+                    sharedMaterials[sharedMatIndex] = NewMaterial();
+                }
+            }
+            renderer.sharedMaterials = sharedMaterials;
+
+        }
+
         void ParseNodes(DataList nodes)
         {
             int nNodes = nodes.Count;
-            int maxMesh = filters.Length - 1;
+            int maxMeshIndex = m_meshesInfo.Length  ;
+
+            /* Make sure we know all the nodes in advance...
+             * Just in case we have forward references...
+             */
+            GameObject[] nodesObjects = new GameObject[nNodes];
+            for (int n = 0; n < nNodes; n++)
+            {
+                nodesObjects[n] = Instantiate(nodePrefab, mainParent);
+            }
 
             for (int n = 0; n < nNodes; n++)
             {
                 DataToken nodeToken = nodes[n];
                 if (nodeToken.TokenType != TokenType.DataDictionary) continue;
                 ParseNode((DataDictionary)nodeToken, out int meshIndex, out string name, out Vector3 position, out Quaternion rotation, out Vector3 scale, out int[] children);
-                if (meshIndex > maxMesh) return;
-                filters[meshIndex].name = name;
-                var transform = filters[meshIndex].transform;
+
+                GameObject node = nodesObjects[n];
+
+                SetupMesh(node, meshIndex, maxMeshIndex);
+
+                node.name = name;
+
+                /* Setup the transform */
+                Transform transform = node.transform;
                 transform.localPosition = position;
                 transform.localRotation = rotation;
                 transform.localScale = scale;
+
+                /* Parent the children */
                 int nChildren = children.Length;
-                Transform parentTransform = filters[meshIndex].transform;
                 for (int c = 0; c < nChildren; c++)
                 {
                     int childIndex = children[c];
-                    if ((childIndex < 0) | (childIndex > maxMesh))
+                    if ((childIndex < 0) | (childIndex >= nNodes))
                     {
                         continue;
                     }
-                    filters[childIndex].transform.SetParent(parentTransform, false);
+                    nodesObjects[childIndex].transform.SetParent(transform, false);
                 }
             }
         }
@@ -711,14 +730,25 @@ namespace VoyageVoyage
             return temporaryRenderer.material;
         }
 
+        // Shamelessly stolen from https://forum.unity.com/threads/standard-material-shader-ignoring-setfloat-property-_mode.344557/
+        public static void SetAsFade(Material material)
+        {
+            material.SetOverrideTag("RenderType", "Transparent");
+            material.DisableKeyword("_ALPHATEST_ON");
+            material.EnableKeyword("_ALPHABLEND_ON");
+            material.DisableKeyword("_ALPHAPREMULTIPLY_ON");
+            material.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.SrcAlpha);
+            material.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+            material.SetInt("_ZWrite", 0);
+            material.renderQueue = 3000;
+        }
+
         Material CreateMaterialFrom(DataDictionary materialInfo)
         {
             Material mat = NewMaterial();
-            
-            if (materialInfo.TryGetValue("name", TokenType.String, out DataToken stringToken))
-            {
-                mat.name = (string)stringToken;
-            }
+
+            mat.name = DictOptString(materialInfo, "name", mat.name);
+
             if (materialInfo.TryGetValue("pbrMetallicRoughness", TokenType.DataDictionary, out DataToken pbrToken))
             {
                 DataDictionary pbrInfo = (DataDictionary)pbrToken;
@@ -727,7 +757,12 @@ namespace VoyageVoyage
                     DataList colorInfo = (DataList)colorToken;
                     if (colorInfo.Count == 4 && IsListComponentType(colorInfo, TokenType.Double))
                     {
-                        mat.color = DataListToColor(colorInfo);
+                        Color color = DataListToColor(colorInfo);
+                        mat.color = color;
+                        if (color.a < 1)
+                        {
+                            SetAsFade(mat);
+                        }
                     }
                 }
                 if (pbrInfo.TryGetValue("metallic", TokenType.Double, out DataToken metallicToken))
@@ -859,7 +894,7 @@ namespace VoyageVoyage
             m_bufferViews = ParseBufferViews((DataList)glbJsonRoot["bufferViews"], glb, cursor);
             m_accessors = ParseAccessors((DataList)glbJsonRoot["accessors"]);
             m_materials = ParseMaterials((DataList)glbJsonRoot["materials"]);
-            ParseAndShowMeshes((DataList)glbJsonRoot["meshes"], filters);
+            ParseAndShowMeshes((DataList)glbJsonRoot["meshes"]);
             ParseNodes((DataList)glbJsonRoot["nodes"]);
             
 
