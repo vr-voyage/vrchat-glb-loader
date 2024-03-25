@@ -1,4 +1,5 @@
 ﻿
+using System;
 using UdonSharp;
 using UnityEngine;
 using VRC.SDK3.Data;
@@ -26,6 +27,7 @@ namespace VoyageVoyage
         object[] m_accessors;
         Material[] m_materials;
         object[] m_meshesInfo;
+        Texture2D[] m_images;
 
         string DictOptString(DataDictionary dict, string fieldName, string defaultValue)
         {
@@ -81,6 +83,7 @@ namespace VoyageVoyage
             m_bufferViews = new object[0];
             m_accessors = new object[0];
             m_materials = new Material[0];
+            m_images = new Texture2D[0];
             Transform[] children = mainParent.GetComponentsInChildren<Transform>();
             int nChildren = children.Length;
             for (int c = 0; c < nChildren; c++)
@@ -300,7 +303,8 @@ namespace VoyageVoyage
             normalsView = (int)((double)attributes["NORMAL"]);
             indicesView = (int)((double)primitives["indices"]);
 
-            uvsView = DictOptInt(primitives, "TEXCOORD_0", -1);
+            uvsView = DictOptInt(attributes, "TEXCOORD_0", -1);
+            ReportInfo("GetSubmeshInfo", $"TEXCOORD_0 : {uvsView}");
             materialIndex = DictOptInt(primitives, "material", -1);
             return true;
         }
@@ -464,12 +468,15 @@ namespace VoyageVoyage
 
             if (uvsView > 0)
             {
+                ReportInfo("LoadMeshFrom", "Got a UV view !");
                 object uvsAccessor = m_accessors[uvsView];
                 if (uvsAccessor != null)
                 {
+                    ReportInfo("LoadMeshFrom", "Got an accessor !");
                     object uvsBuffer = ((object[])uvsAccessor)[accessorBufferIndex];
                     if (uvsBuffer.GetType() == floatArray)
                     {
+                        ReportInfo("LoadMeshFrom", "Setting up the UVS !");
                         m.uv = floatsToVector2((float[])uvsBuffer);
                     }
                 } 
@@ -752,6 +759,21 @@ namespace VoyageVoyage
             if (materialInfo.TryGetValue("pbrMetallicRoughness", TokenType.DataDictionary, out DataToken pbrToken))
             {
                 DataDictionary pbrInfo = (DataDictionary)pbrToken;
+                if (pbrInfo.TryGetValue("baseColorTexture", TokenType.DataDictionary, out DataToken textureInfoToken))
+                {
+                    ReportInfo("CreateMaterialFrom", "BaseColorTexture");
+                    DataDictionary textureInfo = (DataDictionary)textureInfoToken;
+                    if (textureInfo.TryGetValue("index", TokenType.Double, out DataToken indexToken))
+                    {
+                        int textureIndex = (int)(double)indexToken;
+                        if ((textureIndex >= 0) & (textureIndex < m_images.Length))
+                        {
+                            ReportInfo("CreateMaterialFrom", "Setting texture");
+                            mat.SetTexture("_MainTex", m_images[textureIndex]);
+                        }
+                    }
+
+                }
                 if (pbrInfo.TryGetValue("baseColorFactor", TokenType.DataList, out DataToken colorToken))
                 {
                     DataList colorInfo = (DataList)colorToken;
@@ -793,6 +815,98 @@ namespace VoyageVoyage
                 materials[m] = CreateMaterialFrom((DataDictionary)materialInfoToken);
             }
             return materials;
+        }
+
+        const int offsetIndex = 0;
+        const int sizeIndex = 1;
+        string voyageExtensionName = "EXT_voyage_exporter";
+
+        Texture2D ParseImage(DataDictionary imageInfo, byte[] glb)
+        {
+            bool checkFields = CheckFields(imageInfo,
+                "bufferView", TokenType.Double,
+                "extensions", TokenType.DataDictionary);
+            if (!checkFields)
+            {
+                ReportError("ParseImage", "No bufferView or extensions");
+                return null;
+            }
+
+            DataDictionary extension = (DataDictionary)imageInfo["extensions"];
+            bool hasExtension = extension.TryGetValue(voyageExtensionName, TokenType.DataDictionary, out DataToken voyageExtensionToken);
+            if (!hasExtension)
+            {
+                ReportError("ParseImage", "Invalid type for extensions");
+                return null;
+            }
+
+            DataDictionary voyageExtension = (DataDictionary)voyageExtensionToken;
+
+            int width = DictOptInt(voyageExtension, "width", -1);
+            int height = DictOptInt(voyageExtension, "height", -1);
+            string formatInfo = DictOptString(voyageExtension, "format", "");
+
+            if ((width == -1) | (height == 1) | (formatInfo == ""))
+            {
+                ReportError("ParseImage", "No width, height or format informations on Voyage's extension");
+                return null;
+            }
+
+            TextureFormat textureFormat;
+            switch(formatInfo)
+            {
+                case "BGRA32":
+                    textureFormat = TextureFormat.BGRA32;
+                    break;
+                default:
+                    ReportError("ParseImage", "Unknown texture format");
+                    return null;
+            }
+
+            int bufferViewIndex = (int)(double)imageInfo["bufferView"];
+            if ((bufferViewIndex < 0) | (bufferViewIndex >= m_bufferViews.Length))
+            {
+                ReportError("ParseImage", $"Invalid buffer view {bufferViewIndex}");
+                return null;
+            }
+            object bufferView = m_bufferViews[bufferViewIndex];
+            if (bufferView == null)
+            {
+                ReportError("ParseImage", $"Buffer view {bufferViewIndex} is null");
+                return null;
+            }
+            if (bufferView.GetType() != typeof(int[]))
+            {
+                ReportError("ParseImage", $"Buffer view {bufferViewIndex} has an invalid type");
+                return null;
+            }
+
+
+            int[] offsetAndSize = (int[])bufferView;
+            int offset = offsetAndSize[offsetIndex];
+            int size = offsetAndSize[sizeIndex];
+
+            byte[] textureData = new byte[size];
+            Buffer.BlockCopy(glb, offset, textureData, 0, size);
+
+
+            Texture2D tex = new Texture2D(width, height, textureFormat, false);
+            tex.LoadRawTextureData(textureData);
+            tex.Apply(false, false);
+            return tex;
+        }
+
+        Texture2D[] ParseImages(DataList images, byte[] glbData)
+        {
+            int nImages = images.Count;
+            Texture2D[] textures = new Texture2D[nImages];
+            for (int i = 0; i < nImages; i++)
+            {
+                DataToken imageInfoToken = images[i];
+                if (imageInfoToken.TokenType != TokenType.DataDictionary) continue;
+                textures[i] = ParseImage((DataDictionary)imageInfoToken, glbData);
+            }
+            return textures;
         }
 
         void ParseGLB(byte[] glb)
@@ -893,7 +1007,12 @@ namespace VoyageVoyage
 
             m_bufferViews = ParseBufferViews((DataList)glbJsonRoot["bufferViews"], glb, cursor);
             m_accessors = ParseAccessors((DataList)glbJsonRoot["accessors"]);
+            if (glbJsonRoot.TryGetValue("images", TokenType.DataList, out DataToken imagesToken))
+            {
+                m_images = ParseImages((DataList)glbJsonRoot["images"], glb);
+            }
             m_materials = ParseMaterials((DataList)glbJsonRoot["materials"]);
+            
             ParseAndShowMeshes((DataList)glbJsonRoot["meshes"]);
             ParseNodes((DataList)glbJsonRoot["nodes"]);
             
