@@ -1,0 +1,19 @@
+{
+  "name": "io.github.io.github.vr-voyage.vrchat.glb-loader",
+  "displayName": "Voyage GLB Loader",
+  "version": "0.0.1",
+  "description": "Load GLB file at runtime. Still in alpha.",
+  "gitDependencies": {},
+  "vpmDependencies": {
+    "com.vrchat.worlds": "3.5.2-beta.2"
+  },
+  "author": {
+    "name": "Voyage Voyage",
+    "email": "voyage@dontcontactmebymail.com",
+    "url": "https://github.com/vr-voyage"
+  },
+  "legacyFolders": {},
+  "legacyFiles": {},
+  "unity": "2022.3",
+  "unityRelease": "6f1"
+}
