@@ -1,7 +1,7 @@
 {
-  "name": "io.github.io.github.vr-voyage.vrchat.glb-loader",
+  "name": "io.github.vr-voyage.vrchat.glb-loader",
   "displayName": "Voyage GLB Loader",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Load GLB file at runtime. Still in alpha.",
   "gitDependencies": {},
   "vpmDependencies": {

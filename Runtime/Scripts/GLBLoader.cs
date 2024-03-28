@@ -22,6 +22,7 @@ namespace VoyageVoyage
 
         public MeshRenderer temporaryRenderer;
         public Material baseMaterial;
+        public UdonBehaviour[] stateReceivers;
         
         object[] m_bufferViews;
         object[] m_accessors;
@@ -78,8 +79,22 @@ namespace VoyageVoyage
             return retValue;
         }
 
+        void NotifyState(string state)
+        {
+            if (stateReceivers == null) return;
+
+            int nBehaviours = stateReceivers.Length;
+            for (int b = 0; b < nBehaviours; b++)
+            {
+                UdonBehaviour receiver = stateReceivers[b];
+                if (receiver == null) continue;
+                receiver.SendCustomEvent(state);
+            }
+        }
+
         void Clear()
         {
+            NotifyState("SceneCleared");
             m_bufferViews = new object[0];
             m_accessors = new object[0];
             m_materials = new Material[0];
@@ -110,6 +125,7 @@ namespace VoyageVoyage
         {
             Clear();
             ParseGLB(result.ResultBytes);
+            NotifyState("SceneLoaded");
         }
 
         public override void OnStringLoadError(IVRCStringDownload result)
@@ -213,18 +229,17 @@ namespace VoyageVoyage
 
         bool CheckFields(DataDictionary dictionary, params object[] fieldNamesAndTypes)
         {
-            bool everythingIsOk = true;
+            bool allFielsAreOk = true;
             int nObjects = fieldNamesAndTypes.Length;
             for (int i = 0; i < nObjects; i += 2)
             {
                 string name = (string)fieldNamesAndTypes[i + 0];
                 TokenType type = (TokenType)fieldNamesAndTypes[i + 1];
-                i += 2;
 
-                everythingIsOk &= dictionary.ContainsKey(name);
-                everythingIsOk &= (dictionary[name].TokenType == type);
+                bool fieldIsOk = (dictionary.ContainsKey(name) && dictionary[name].TokenType == type);
+                allFielsAreOk &= fieldIsOk;
             }
-            return everythingIsOk;
+            return allFielsAreOk;
         }
 
         object[] ParseAccessors(DataList accessorsInfo)
@@ -651,8 +666,8 @@ namespace VoyageVoyage
             int[] materialsIndices = (int[])meshInfo[1];
 
             if (mesh == null) return;
+            mesh.RecalculateBounds();
 
- 
             MeshFilter filter = node.GetComponent<MeshFilter>();
             filter.sharedMesh = mesh;
 
@@ -678,6 +693,9 @@ namespace VoyageVoyage
             }
             renderer.sharedMaterials = sharedMaterials;
 
+            BoxCollider boxCollider = node.GetComponent<BoxCollider>();
+            boxCollider.center = renderer.bounds.center;
+            boxCollider.size = renderer.bounds.size;
         }
 
         void ParseNodes(DataList nodes)
@@ -724,6 +742,15 @@ namespace VoyageVoyage
                     nodesObjects[childIndex].transform.SetParent(transform, false);
                 }
             }
+
+            for (int n = 0; n < nNodes; n++)
+            {
+                GameObject node = nodesObjects[n];
+                if (node == null) continue;
+                BoxCollider collider = node.GetComponent<BoxCollider>();
+                if (collider == null) continue;
+            }
+
         }
 
         Material NewMaterial()
