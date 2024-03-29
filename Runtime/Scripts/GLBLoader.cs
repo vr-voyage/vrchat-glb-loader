@@ -29,6 +29,40 @@ namespace VoyageVoyage
         Material[] m_materials;
         object[] m_meshesInfo;
         Texture2D[] m_images;
+        GameObject[] m_nodes;
+
+
+        const int errorValue = -2;
+        const int sectionComplete = -1;
+
+        int currentState = -1;
+        int currentIndex = -1;
+        byte[] glb = new byte[0];
+        string glbJsonRaw = "";
+        DataDictionary glbJson;
+        int glbDataStart = 0;
+        bool finished = false;
+        float limit = 0;
+
+
+        void ResetState()
+        {
+            currentState = -1;
+            currentIndex = -1;
+            glb = new byte[0];
+            glbJsonRaw = "";
+            glbJson = new DataDictionary();
+            glbDataStart = 0;
+
+            m_bufferViews = new object[0];
+            m_accessors = new object[0];
+            m_materials = new Material[0];
+            m_images = new Texture2D[0];
+            m_nodes = new GameObject[0];
+
+            finished = false;
+            limit = 0;
+        }
 
         string DictOptString(DataDictionary dict, string fieldName, string defaultValue)
         {
@@ -92,13 +126,21 @@ namespace VoyageVoyage
             }
         }
 
+        void StartParsing()
+        {
+
+            currentState = 0;
+            parsing = true;
+            //ReportInfo("StartParsing", $"Starting at {Time.realtimeSinceStartup}");
+            //ParseGLB();
+        }
+
         void Clear()
         {
             NotifyState("SceneCleared");
-            m_bufferViews = new object[0];
-            m_accessors = new object[0];
-            m_materials = new Material[0];
-            m_images = new Texture2D[0];
+            ResetState();
+
+
             Transform[] children = mainParent.GetComponentsInChildren<Transform>();
             int nChildren = children.Length;
             for (int c = 0; c < nChildren; c++)
@@ -123,9 +165,10 @@ namespace VoyageVoyage
 
         public override void OnStringLoadSuccess(IVRCStringDownload result)
         {
+            //ReportInfo("OnStringLoadSuccess", $"Time : {Time.realtimeSinceStartup}");
             Clear();
-            ParseGLB(result.ResultBytes);
-            NotifyState("SceneLoaded");
+            glb = result.ResultBytes;
+            StartParsing();
         }
 
         public override void OnStringLoadError(IVRCStringDownload result)
@@ -195,36 +238,9 @@ namespace VoyageVoyage
             {
                 if (list.TryGetValue(i, TokenType.String, out DataToken stringValue))
                 {
-                    ReportInfo("GLB", $"Key : {(string)stringValue}");
+                    //ReportInfo("GLB", $"Key : {(string)stringValue}");
                 }
             }
-        }
-
-        void DumpKeys(string name, DataDictionary dict)
-        {
-            DumpList($"{name} keys", dict.GetKeys());
-        }
-
-        void DumpValues(string name, DataDictionary dict)
-        {
-            Debug.Log($"<color=blue> Dumping list {name} !</color>");
-            DataList values = dict.GetValues();
-            int nElements = values.Count;
-            for (int e = 0; e < nElements; e++)
-            {
-                ReportInfo("DumpValues", $"values[{e}] = {values[e].TokenType}");
-            }
-        }
-
-        bool HasKeys(DataDictionary dict, params string[] keys)
-        {
-            int nKeys = keys.Length;
-            bool hasAllKeys = true;
-            for (int k = 0; k < nKeys; k++)
-            {
-                hasAllKeys &= dict.ContainsKey(keys[k]);
-            }
-            return hasAllKeys;
         }
 
         bool CheckFields(DataDictionary dictionary, params object[] fieldNamesAndTypes)
@@ -242,20 +258,48 @@ namespace VoyageVoyage
             return allFielsAreOk;
         }
 
-        object[] ParseAccessors(DataList accessorsInfo)
+        int ParseAccessors(int startFrom)
         {
-            int nAccessors = accessorsInfo.Count;
-            object[] newAccessors = new object[nAccessors];
-            for (int i = 0; i < nAccessors; i++)
+            if (glbJson == null)
             {
-                DataToken accessorToken = accessorsInfo[i];
+                return errorValue;
+            }
+            
+            if (startFrom == 0)
+            {
+                bool gotAccessors = glbJson.TryGetValue("accessors", TokenType.DataList, out DataToken accessorsListToken);
+                if (!gotAccessors)
+                {
+                    m_accessors = new object[0];
+                    return sectionComplete;
+                }
+            }
+
+            DataList accessorsList = (DataList)glbJson["accessors"];
+            int nAccessors = accessorsList.Count;
+
+            if (startFrom == 0)
+            {
+                m_accessors = new object[nAccessors];
+            }
+
+            object[] accesssors = m_accessors;
+            for (int i = startFrom; i < nAccessors; i++)
+            {
+                if ((i != startFrom) & (!StillHaveTime()))
+                {
+                    return i;
+                }
+
+                DataToken accessorToken = accessorsList[i];
                 if (accessorToken.TokenType != TokenType.DataDictionary)
                 {
                     continue;
                 }
-                newAccessors[i] = ParseAccessor((DataDictionary)accessorToken);
+                accesssors[i] = ParseAccessor((DataDictionary)accessorToken);
+
             }
-            return newAccessors;
+            return sectionComplete;
         }
         object[] ParseAccessor(DataDictionary accessorInfo)
         {
@@ -319,7 +363,7 @@ namespace VoyageVoyage
             indicesView = (int)((double)primitives["indices"]);
 
             uvsView = DictOptInt(attributes, "TEXCOORD_0", -1);
-            ReportInfo("GetSubmeshInfo", $"TEXCOORD_0 : {uvsView}");
+            //ReportInfo("GetSubmeshInfo", $"TEXCOORD_0 : {uvsView}");
             materialIndex = DictOptInt(primitives, "material", -1);
             return true;
         }
@@ -405,7 +449,7 @@ namespace VoyageVoyage
             return ret;
         }
 
-        Vector3[] floatsToVector3(float[] floats)
+        Vector3[] FloatsToVector3(float[] floats)
         {
             int nFloats = floats.Length;
             int nVectors = nFloats / 3;
@@ -419,7 +463,23 @@ namespace VoyageVoyage
             return ret;
         }
 
-        Vector2[] floatsToVector2(float[] floats)
+        Vector3[] FloatsToVector3Scaled(float[] floats, Vector3 scale)
+        {
+            int nFloats = floats.Length;
+            int nVectors = nFloats / 3;
+            Vector3[] ret = new Vector3[nVectors];
+            for (int v = 0, f = 0; v < nVectors; v++, f += 3)
+            {
+                ret[v] = new Vector3(
+                    floats[f + 0] * scale.x,
+                    floats[f + 1] * scale.y,
+                    floats[f + 2] * scale.z
+                    );
+            }
+            return ret;
+        }
+
+        Vector2[] FloatsToVector2(float[] floats)
         {
             int nFloats = floats.Length;
             int nVectors = nFloats / 2;
@@ -435,6 +495,24 @@ namespace VoyageVoyage
         string Vector3ToString(Vector3 v)
         {
             return $"[{v.x},{v.y},{v.z}]";
+        }
+
+        ushort[] InvertTriangles(ushort[] indices)
+        {
+            int nTriangles = indices.Length / 3;
+            int i, b, c;
+            for (int t = 0; t < nTriangles; t++)
+            {
+                i = t * 3;
+                // a = i + 0;
+                b = i + 1;
+                c = i + 2;
+
+                ushort pointB = indices[b];
+                indices[b] = indices[c];
+                indices[c] = pointB;
+            }
+            return indices;
         }
 
         Mesh LoadMeshFrom(int[] meshInfo, int startOffset)
@@ -478,27 +556,29 @@ namespace VoyageVoyage
                 return m;
             }
 
-            m.vertices = floatsToVector3((float[])positionsBuffer);
-            m.normals = floatsToVector3((float[])normalsBuffer);
+            m.vertices = FloatsToVector3Scaled((float[])positionsBuffer, new Vector3(-1, 1, 1));
+            m.normals = FloatsToVector3Scaled((float[])normalsBuffer, new Vector3(-1, 1, 1));
 
             if (uvsView > 0)
             {
-                ReportInfo("LoadMeshFrom", "Got a UV view !");
+                //ReportInfo("LoadMeshFrom", "Got a UV view !");
                 object uvsAccessor = m_accessors[uvsView];
                 if (uvsAccessor != null)
                 {
-                    ReportInfo("LoadMeshFrom", "Got an accessor !");
+                    //ReportInfo("LoadMeshFrom", "Got an accessor !");
                     object uvsBuffer = ((object[])uvsAccessor)[accessorBufferIndex];
                     if (uvsBuffer.GetType() == floatArray)
                     {
-                        ReportInfo("LoadMeshFrom", "Setting up the UVS !");
-                        m.uv = floatsToVector2((float[])uvsBuffer);
+                        //ReportInfo("LoadMeshFrom", "Setting up the UVS !");
+                        m.uv = FloatsToVector2((float[])uvsBuffer);
                     }
                 } 
             }
-            
-            m.SetIndices((ushort[])indicesBuffer, MeshTopology.Triangles, 0);
 
+            ushort[] indices = (ushort[])indicesBuffer;
+            //InvertTriangles(indices);
+            m.SetIndices(indices, MeshTopology.Triangles, 0);
+            
             return m;
 
         }
@@ -514,7 +594,7 @@ namespace VoyageVoyage
                 return false;
             }
 
-            ReportInfo("LoadMesh", $"$Mesh : {name} nSubmeshes : {nSubmeshes}");
+            //ReportInfo("LoadMesh", $"$Mesh : {name} nSubmeshes : {nSubmeshes}");
 
             CombineInstance[] instances = new CombineInstance[nSubmeshes];
             for (int s = 0; s < nSubmeshes; s++)
@@ -537,11 +617,34 @@ namespace VoyageVoyage
             target = DictOptInt(bufferView, "target", 0);
         }
 
-        object[] ParseBufferViews(DataList bufferViews, byte[] glb, int dataOffset)
+        int ParseBufferViews(int startFrom)
         {
-            int nViews = bufferViews.Count;
-            object[] views = new object[nViews];
-            for (int v = 0; v < nViews; v++)
+            if (glbJson == null)
+            {
+                return errorValue;
+            }
+
+            if (startFrom == 0)
+            {
+                bool gotBufferViews = glbJson.TryGetValue("bufferViews", TokenType.DataList, out DataToken bufferViewsToken);
+                if (!gotBufferViews)
+                {
+                    m_bufferViews = new object[0];
+                    return sectionComplete;
+                }
+            }
+
+            DataList bufferViews = (DataList)glbJson["bufferViews"];
+            
+            if (startFrom == 0)
+            {
+                m_bufferViews = new object[bufferViews.Count];
+            }
+
+            object[] views = m_bufferViews;
+            int nViews = m_bufferViews.Length;
+            
+            for (int v = startFrom; v < nViews; v++)
             {
                 DataToken bufferViewToken = bufferViews[v];
                 if (bufferViewToken.TokenType != TokenType.DataDictionary)
@@ -551,7 +654,7 @@ namespace VoyageVoyage
                 DataDictionary bufferView = (DataDictionary)bufferViewToken;
                 GetBufferViewInfo(bufferView, out int localOffset, out int nBytes, out int target);
 
-                int offset = dataOffset + localOffset;
+                int offset = glbDataStart + localOffset;
                 switch (target)
                 {
                     case 0:
@@ -561,7 +664,7 @@ namespace VoyageVoyage
                         views[v] = GetFloats(glb, offset, nBytes);
                         break;
                     case 34963:
-                        views[v] = GetUshorts(glb, offset, nBytes);
+                        views[v] = InvertTriangles(GetUshorts(glb, offset, nBytes));
                         break;
                     default:
                         ReportInfo("GLB", $"Unhandled buffer view target {target}");
@@ -569,26 +672,56 @@ namespace VoyageVoyage
                         break;
                 }
 
+                if ((v != startFrom) & (!StillHaveTime()))
+                {
+                    return v;
+                }
             }
-            return views;
+            return sectionComplete;
         }
 
-        void ParseAndShowMeshes(DataList meshesInfo)
+        int ParseMeshes(int startFrom)
         {
-            int nMeshes = meshesInfo.Count;
-
-            m_meshesInfo = new object[nMeshes];
-
-            for (int m = 0; m < nMeshes; m++)
+            if (glbJson == null)
             {
-                DataToken meshInfoToken = meshesInfo[m];
+                return errorValue;
+            }
+            if (startFrom == 0)
+            {
+                bool hasMeshes = glbJson.TryGetValue("meshes", TokenType.DataList, out DataToken meshesListToken);
+                if (!hasMeshes)
+                {
+                    m_meshesInfo = new object[0];
+                    return sectionComplete;
+                }
+            }
+
+            DataList meshesList = (DataList)glbJson["meshes"];
+            int nMeshes = meshesList.Count;
+
+            if (startFrom == 0)
+            {
+                m_meshesInfo = new object[nMeshes];
+            }
+
+            object[] meshesInfo = m_meshesInfo;
+
+            for (int m = startFrom; m < nMeshes; m++)
+            {
+                DataToken meshInfoToken = meshesList[m];
                 if (meshInfoToken.TokenType != TokenType.DataDictionary) continue;
 
                 bool gotAMesh = LoadMesh((DataDictionary)meshInfoToken, out string name, out Mesh mesh, out int[] materialsIndices);
                 if (!gotAMesh) continue;
 
-                m_meshesInfo[m] = new object[] { mesh, materialsIndices };
+                meshesInfo[m] = new object[] { mesh, materialsIndices };
+                
+                if ((m != startFrom) & (!StillHaveTime()))
+                {
+                    return m;
+                }
             }
+            return sectionComplete;
         }
 
         bool IsListComponentType(DataList list, TokenType type)
@@ -698,23 +831,75 @@ namespace VoyageVoyage
             boxCollider.size = renderer.bounds.size;
         }
 
-        void ParseNodes(DataList nodes)
+        int SpawnNodes(int startFrom)
         {
-            int nNodes = nodes.Count;
-            int maxMeshIndex = m_meshesInfo.Length  ;
-
-            /* Make sure we know all the nodes in advance...
-             * Just in case we have forward references...
-             */
-            GameObject[] nodesObjects = new GameObject[nNodes];
-            for (int n = 0; n < nNodes; n++)
+            if (glbJson == null)
             {
+                return errorValue;
+            }
+            
+            if (startFrom == 0)
+            {
+                bool hasNodes = glbJson.TryGetValue("nodes", TokenType.DataList, out DataToken nodeslistToken);
+                if (!hasNodes)
+                {
+                    return sectionComplete;
+                }
+            }
+
+            DataList nodesList = (DataList)glbJson["nodes"];
+            int nNodes = nodesList.Count;
+
+            if (startFrom == 0)
+            {
+                m_nodes = new GameObject[nNodes];
+            }
+
+            GameObject[] nodesObjects = m_nodes;
+            for (int n = startFrom; n < nNodes; n++)
+            {
+                if ((n != startFrom) & (!StillHaveTime()))
+                {
+                    return n;
+                }
                 nodesObjects[n] = Instantiate(nodePrefab, mainParent);
             }
 
-            for (int n = 0; n < nNodes; n++)
+            return sectionComplete;
+        }
+
+        int SetupNodes(int startFrom)
+        {
+            if (glbJson == null)
             {
-                DataToken nodeToken = nodes[n];
+                return errorValue;
+            }
+
+            if (startFrom == 0)
+            {
+                if (m_nodes == null)
+                {
+                    return sectionComplete;
+                }
+
+                if (m_nodes.Length == 0)
+                {
+                    return sectionComplete;
+                }
+            }
+
+            DataList nodesList = (DataList)glbJson["nodes"];
+            int nNodes = nodesList.Count;
+
+            int maxMeshIndex = m_meshesInfo.Length - 1;
+            GameObject[] nodesObjects = m_nodes;
+            for (int n = startFrom; n < nNodes; n++)
+            {
+                if ((n != startFrom) & (!StillHaveTime()))
+                {
+                    return n;
+                }
+                DataToken nodeToken = nodesList[n];
                 if (nodeToken.TokenType != TokenType.DataDictionary) continue;
                 ParseNode((DataDictionary)nodeToken, out int meshIndex, out string name, out Vector3 position, out Quaternion rotation, out Vector3 scale, out int[] children);
 
@@ -723,6 +908,9 @@ namespace VoyageVoyage
                 SetupMesh(node, meshIndex, maxMeshIndex);
 
                 node.name = name;
+
+                position.x *= -1;
+                rotation = new Quaternion(-rotation.x, rotation.y, rotation.z, -rotation.w);
 
                 /* Setup the transform */
                 Transform transform = node.transform;
@@ -743,13 +931,7 @@ namespace VoyageVoyage
                 }
             }
 
-            for (int n = 0; n < nNodes; n++)
-            {
-                GameObject node = nodesObjects[n];
-                if (node == null) continue;
-                BoxCollider collider = node.GetComponent<BoxCollider>();
-                if (collider == null) continue;
-            }
+            return sectionComplete;
 
         }
 
@@ -788,14 +970,14 @@ namespace VoyageVoyage
                 DataDictionary pbrInfo = (DataDictionary)pbrToken;
                 if (pbrInfo.TryGetValue("baseColorTexture", TokenType.DataDictionary, out DataToken textureInfoToken))
                 {
-                    ReportInfo("CreateMaterialFrom", "BaseColorTexture");
+                    //ReportInfo("CreateMaterialFrom", "BaseColorTexture");
                     DataDictionary textureInfo = (DataDictionary)textureInfoToken;
                     if (textureInfo.TryGetValue("index", TokenType.Double, out DataToken indexToken))
                     {
                         int textureIndex = (int)(double)indexToken;
                         if ((textureIndex >= 0) & (textureIndex < m_images.Length))
                         {
-                            ReportInfo("CreateMaterialFrom", "Setting texture");
+                            //ReportInfo("CreateMaterialFrom", "Setting texture");
                             mat.SetTexture("_MainTex", m_images[textureIndex]);
                         }
                     }
@@ -827,13 +1009,39 @@ namespace VoyageVoyage
             return mat;
         }
 
-        Material[] ParseMaterials(DataList materialsInfo)
+        int ParseMaterials(int startFrom)
         {
-            int nMaterials = materialsInfo.Count;
-            Material[] materials = new Material[nMaterials];
-            for (int m = 0; m < nMaterials; m++)
+            if (glbJson == null)
             {
-                DataToken materialInfoToken = materialsInfo[m];
+                return errorValue;
+            }
+
+            if (startFrom == 0)
+            {
+                bool hasMaterials = glbJson.TryGetValue("materials", TokenType.DataList, out DataToken materialsListToken);
+                if (!hasMaterials)
+                {
+                    m_materials = new Material[0];
+                    return sectionComplete;
+                }
+            }
+
+            DataList materialsList = (DataList)glbJson["materials"];
+            int nMaterials = materialsList.Count;
+
+            if (startFrom == 0)
+            {
+                m_materials = new Material[nMaterials];
+            }
+
+            Material[] materials = m_materials;
+            for (int m = startFrom; m < nMaterials; m++)
+            {
+                if ((m != startFrom) & (!StillHaveTime()))
+                {
+                    return m;
+                }
+                DataToken materialInfoToken = materialsList[m];
                 if (materialInfoToken.TokenType != TokenType.DataDictionary)
                 {
                     materials[m] = null;
@@ -841,7 +1049,7 @@ namespace VoyageVoyage
                 }
                 materials[m] = CreateMaterialFrom((DataDictionary)materialInfoToken);
             }
-            return materials;
+            return sectionComplete;
         }
 
         const int offsetIndex = 0;
@@ -923,125 +1131,253 @@ namespace VoyageVoyage
             return tex;
         }
 
-        Texture2D[] ParseImages(DataList images, byte[] glbData)
+        int ParseImages(int startFrom)
         {
-            int nImages = images.Count;
-            Texture2D[] textures = new Texture2D[nImages];
-            for (int i = 0; i < nImages; i++)
+            if (glbJson == null)
             {
-                DataToken imageInfoToken = images[i];
-                if (imageInfoToken.TokenType != TokenType.DataDictionary) continue;
-                textures[i] = ParseImage((DataDictionary)imageInfoToken, glbData);
+                return errorValue;
             }
-            return textures;
+            if (currentIndex == 0)
+            {
+                bool hasImages = glbJson.TryGetValue("images", TokenType.DataList, out DataToken imagesListToken);
+                if (!hasImages)
+                {
+                    m_images = new Texture2D[0];
+                    return sectionComplete;
+                }
+            }
+
+            DataList imagesList = (DataList)glbJson["images"];
+            int nImages = imagesList.Count;
+
+            if (currentIndex == 0)
+            {
+                m_images = new Texture2D[nImages];
+            }
+
+            Texture2D[] textures = m_images;
+            for (int i = startFrom; i < nImages; i++)
+            {
+                if ((i != startFrom) & (!StillHaveTime()))
+                {
+                    return i;
+                }
+                DataToken imageInfoToken = imagesList[i];
+                if (imageInfoToken.TokenType != TokenType.DataDictionary) continue;
+                textures[i] = ParseImage((DataDictionary)imageInfoToken, glb);
+
+            }
+            return sectionComplete;
         }
 
-        void ParseGLB(byte[] glb)
+
+        int ParseMainData(int resumeFromIndex)
         {
             if (glb == null)
             {
-                ReportError("GLB", "No header !");
-                return;
+                ReportError("GLB", "No data provided actually... The script is bugged !");
+                return errorValue;
             }
 
             if (glb.Length < 32)
             {
                 ReportError("GLB", "GLB size is wrong");
-                return;
+                return errorValue;
             }
 
-            int cursor = 0;
-
-            uint magic = System.BitConverter.ToUInt32(glb, cursor);
-            cursor += 4;
+            int glbCursor = 0;
+            uint magic = System.BitConverter.ToUInt32(glb, glbCursor);
+            glbCursor += 4;
             if (magic != 0x46546C67)
             {
                 ReportError("GLB", $"Wrong magic. Expected 0x46546C67 but got 0x{magic:X8}");
-                return;
+                return errorValue;
             }
 
-            uint version = System.BitConverter.ToUInt32(glb, cursor);
-            cursor += 4;
-            ReportInfo("GLB", $"GLB Version {version}");
+            uint version = System.BitConverter.ToUInt32(glb, glbCursor);
+            glbCursor += 4;
+            //ReportInfo("GLB", $"GLB Version {version}");
 
-            uint size = System.BitConverter.ToUInt32(glb, cursor);
-            cursor += 4;
-            ReportInfo("GLB", $"Size : {size}");
+            uint size = System.BitConverter.ToUInt32(glb, glbCursor);
+            glbCursor += 4;
+            //ReportInfo("GLB", $"Size : {size}");
 
-            ReportInfo("GLB", $"Data size : {glb.Length}");
+            //ReportInfo("GLB", $"Data size : {glbContent.Length}");
 
             if (glb.Length < size)
             {
                 ReportError("GLB", $"Not enough data in this GLB file ! Expected {size} but got {glb.Length}");
-                return;
+                return errorValue;
             }
 
-            int chunkLength = System.BitConverter.ToInt32(glb, cursor);
-            cursor += 4;
-            uint chunkType = System.BitConverter.ToUInt32(glb, cursor);
-            cursor += 4;
+            int chunkLength = System.BitConverter.ToInt32(glb, glbCursor);
+            glbCursor += 4;
+            uint chunkType = System.BitConverter.ToUInt32(glb, glbCursor);
+            glbCursor += 4;
 
             if (chunkLength < 0)
             {
                 ReportError("GLB", $"Negative chunk length {chunkLength}");
-                return;
+                return errorValue;
             }
 
             if (chunkType != 0x4E4F534A)
             {
                 ReportError("GLB", $"Expected a JSON Chunk here !");
-                return;
+                return errorValue;
             }
 
-            ReportInfo("GLB", $"Next chunk : Type : 0x{chunkType:X8} - Size {chunkLength}");
+            //ReportInfo("GLB", $"Next chunk : Type : 0x{chunkType:X8} - Size {chunkLength}");
 
-            string jsonData = System.Text.Encoding.UTF8.GetString(glb, cursor, chunkLength);
-            ReportInfo("GLB", jsonData);
+            string jsonData = System.Text.Encoding.UTF8.GetString(glb, glbCursor, chunkLength);
+            //ReportInfo("GLB", jsonData);
 
-            cursor += chunkLength;
+            glbCursor += chunkLength;
 
-            chunkLength = System.BitConverter.ToInt32(glb, cursor);
-            cursor += 4;
-            chunkType = System.BitConverter.ToUInt32(glb, cursor);
-            cursor += 4;
+            chunkLength = System.BitConverter.ToInt32(glb, glbCursor);
+            glbCursor += 4;
+            chunkType = System.BitConverter.ToUInt32(glb, glbCursor);
+            glbCursor += 4;
 
             if (chunkType != 0x004E4942)
             {
                 ReportError("GLB", $"Expected a binary chunk here. Got a 0x{chunkType:X8}");
+                return errorValue;
+            }
+
+            glbDataStart = glbCursor;
+            glbJsonRaw = jsonData;
+            return sectionComplete;
+        }
+
+        bool parsing = false;
+
+        void ParseError()
+        {
+            NotifyState("ParseError");
+            parsing = false;
+        }
+
+        void ParseComplete()
+        {
+            NotifyState("SceneLoaded");
+            parsing = false;
+        }
+
+        
+
+        bool StillHaveTime()
+        {
+            //ReportInfo("StillHaveTime", $"{Time.realtimeSinceStartup} < {limit}");
+            return Time.realtimeSinceStartup < limit;
+        }
+
+        void TriggerNextIteration()
+        {
+            if (finished)
+            {
+                ParseComplete();
                 return;
             }
 
-            VRCJson.TryDeserializeFromJson(jsonData, out DataToken result);
+            if (currentIndex == errorValue)
+            {
+                ParseError();
+                return;
+            }
+
+            if (currentIndex == sectionComplete)
+            {
+                currentState += 1;
+                currentIndex = 0;
+            }
+        }
+
+        int ParseJsonData(int _)
+        {
+            if ((glbJsonRaw == null) | (glbJsonRaw == ""))
+            {
+                return errorValue;
+            }
+            VRCJson.TryDeserializeFromJson(glbJsonRaw, out DataToken result);
             if (result.TokenType != TokenType.DataDictionary)
             {
                 ReportError("GLB", "Invalid GLB Json data !");
-                return;
+                return errorValue;
             }
 
-            DataDictionary glbJsonRoot = (DataDictionary)result;
-            bool check = CheckFields(glbJsonRoot,
-                "meshes", TokenType.DataList,
-                "materials", TokenType.DataList,
-                "bufferViews", TokenType.DataList,
-                "accessors", TokenType.DataList,
-                "nodes", TokenType.DataList);
-            if (!check)
+            glbJson = (DataDictionary)result;
+
+            return sectionComplete;
+        }
+
+        private void Update()
+        {
+            if (!parsing)
             {
-                ReportError("GLB", "Unexpected GLB data");
                 return;
             }
+            ParseGLB();
+        }
 
+        public void ParseGLB()
+        {
+            
+            if (!StillHaveTime())
+            {
+                limit = Time.realtimeSinceStartup + Time.fixedDeltaTime / 2;
+            }
 
-            m_bufferViews = ParseBufferViews((DataList)glbJsonRoot["bufferViews"], glb, cursor);
-            m_accessors = ParseAccessors((DataList)glbJsonRoot["accessors"]);
-            if (glbJsonRoot.TryGetValue("images", TokenType.DataList, out DataToken imagesToken))
+            //ReportInfo("ParseGLB", $"CurrentState : {currentState} - Index : {currentIndex}");
+
+            switch (currentState)
+            {
+                case 0:
+                    currentIndex = ParseMainData(currentIndex);
+                    break;
+                case 1:
+                    currentIndex = ParseJsonData(currentIndex);
+                    break;
+                case 2:
+                    currentIndex = ParseBufferViews(currentIndex);
+                    break;
+                case 3:
+                    currentIndex = ParseAccessors(currentIndex);
+                    break;
+                case 4:
+                    currentIndex = ParseImages(currentIndex);
+                    break;
+                case 5:
+                    currentIndex = ParseMaterials(currentIndex);
+                    break;
+                case 6:
+                    currentIndex = ParseMeshes(currentIndex);
+                    break;
+                case 7:
+                    currentIndex = SpawnNodes(currentIndex);
+                    break;
+                case 8:
+                    currentIndex = SetupNodes(currentIndex);
+                    break;
+                default:
+                    finished = true;
+                    //enabled = false;
+                    break;
+            }
+
+            TriggerNextIteration();
+            //ReportInfo("ParseGLB", $"Iteration ended at {Time.realtimeSinceStartup}");
+
+            //m_bufferViews = ParseBufferViews((DataList)glbJsonRoot["bufferViews"], glb, cursor);
+            //m_accessors = ParseAccessors((DataList)glbJsonRoot["accessors"]);
+            /*if (glbJsonRoot.TryGetValue("images", TokenType.DataList, out DataToken imagesToken))
             {
                 m_images = ParseImages((DataList)glbJsonRoot["images"], glb);
-            }
-            m_materials = ParseMaterials((DataList)glbJsonRoot["materials"]);
+            }*/
+            //m_materials = ParseMaterials((DataList)glbJsonRoot["materials"]);
             
-            ParseAndShowMeshes((DataList)glbJsonRoot["meshes"]);
-            ParseNodes((DataList)glbJsonRoot["nodes"]);
+            //ParseAndShowMeshes((DataList)glbJsonRoot["meshes"]);
+            //ParseNodes((DataList)glbJsonRoot["nodes"]);
             
 
         }

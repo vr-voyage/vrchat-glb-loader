@@ -56,12 +56,13 @@ MonoBehaviour:
     SerializationNodes: []
   _udonSharpBackingUdonBehaviour: {fileID: 2792029052745083663}
   glbUrl:
-    url: https://cdn.discordapp.com/attachments/1114023670759817287/1220467548739469343/LoveYouTofu3.glb?ex=660f0bfa&is=65fc96fa&hm=7cf2bc498714cca0a06fc25f71db6a6e9fd9285f53645fd9f2829cdee8a54062&
+    url: 
   mainParent: {fileID: 0}
   nodePrefab: {fileID: 4312348114919126269, guid: 59c878db04cb9b44298f4e7464d931e0,
     type: 3}
   temporaryRenderer: {fileID: 0}
   baseMaterial: {fileID: 2100000, guid: 53edb77c3b172394a9bd0a42358a3026, type: 2}
+  stateReceivers: []
 --- !u!114 &2792029052745083663
 MonoBehaviour:
   m_ObjectHideFlags: 0
