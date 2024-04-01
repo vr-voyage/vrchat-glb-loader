@@ -12,6 +12,10 @@ public class HierarchyManager : UdonSharpBehaviour
     {
         SetOwnColliderState(true);
         SetChildrenCollidersState(false);
+        Transform t = transform;
+        t.localPosition = Vector3.zero;
+        t.localRotation = Quaternion.identity;
+        t.localScale = Vector3.one;
     }
 
     public void SetChildrenCollidersState(bool state)

@@ -9,20 +9,18 @@ using VRC.Udon;
 
 namespace VoyageVoyage
 {
-    [UdonBehaviourSyncMode(BehaviourSyncMode.Manual)]
+    [UdonBehaviourSyncMode(BehaviourSyncMode.None)]
     public class GLBLoader : UdonSharpBehaviour
     {
         
-        public VRCUrl glbUrl;
+        public VRCUrl userURL;
 
-        [UdonSynced]
-        VRCUrl syncedUrl;
         public Transform mainParent;
         public GameObject nodePrefab;
 
         public MeshRenderer temporaryRenderer;
         public Material baseMaterial;
-        public UdonBehaviour[] stateReceivers;
+        public UdonSharpBehaviour[] stateReceivers;
         
         object[] m_bufferViews;
         object[] m_accessors;
@@ -30,7 +28,6 @@ namespace VoyageVoyage
         object[] m_meshesInfo;
         Texture2D[] m_images;
         GameObject[] m_nodes;
-
 
         const int errorValue = -2;
         const int sectionComplete = -1;
@@ -43,7 +40,6 @@ namespace VoyageVoyage
         int glbDataStart = 0;
         bool finished = false;
         float limit = 0;
-
 
         void ResetState()
         {
@@ -113,6 +109,11 @@ namespace VoyageVoyage
             return retValue;
         }
 
+        public float IsAlive(float retValue)
+        {
+            return retValue;
+        }
+
         void NotifyState(string state)
         {
             if (stateReceivers == null) return;
@@ -120,7 +121,7 @@ namespace VoyageVoyage
             int nBehaviours = stateReceivers.Length;
             for (int b = 0; b < nBehaviours; b++)
             {
-                UdonBehaviour receiver = stateReceivers[b];
+                var receiver = stateReceivers[b];
                 if (receiver == null) continue;
                 receiver.SendCustomEvent(state);
             }
@@ -130,7 +131,7 @@ namespace VoyageVoyage
         {
 
             currentState = 0;
-            parsing = true;
+            enabled = true;
             //ReportInfo("StartParsing", $"Starting at {Time.realtimeSinceStartup}");
             //ParseGLB();
         }
@@ -181,53 +182,14 @@ namespace VoyageVoyage
             //SetURL(glbUrl);
         }
 
-        public void SetURL(VRCUrl url)
+        void DownloadModel()
         {
-            glbUrl = url;
-            VRCStringDownloader.LoadUrl(glbUrl, (VRC.Udon.Common.Interfaces.IUdonEventReceiver)this);
-            Sync();
+            VRCStringDownloader.LoadUrl(userURL, (VRC.Udon.Common.Interfaces.IUdonEventReceiver)this);
         }
 
-        void Sync()
+        public void UserURLUpdated()
         {
-            VRCPlayerApi localPlayer = Networking.LocalPlayer;
-            if (localPlayer == null)
-            {
-                ReportError("VRChat", "Local player is null...");
-                return;
-            }
-
-            if (Networking.GetOwner(gameObject) == localPlayer)
-            {
-                NowImTheOwner();
-            }
-            else
-            {
-                Networking.SetOwner(localPlayer, gameObject);
-            }
-        }
-
-        public override void OnOwnershipTransferred(VRCPlayerApi player)
-        {
-            if (player == Networking.LocalPlayer)
-            {
-                NowImTheOwner();
-            }
-        }
-
-        void NowImTheOwner()
-        {
-            syncedUrl = glbUrl;
-            RequestSerialization();
-        }
-
-        public override void OnDeserialization()
-        {
-            if (syncedUrl != glbUrl)
-            {
-                glbUrl = syncedUrl;
-                VRCStringDownloader.LoadUrl(glbUrl, (VRC.Udon.Common.Interfaces.IUdonEventReceiver)this);
-            }
+            DownloadModel();
         }
 
         void DumpList(string name, DataList list)
@@ -256,6 +218,114 @@ namespace VoyageVoyage
                 allFielsAreOk &= fieldIsOk;
             }
             return allFielsAreOk;
+        }
+
+        ushort[] GetUshorts(byte[] glbData, int offset, int nBytes)
+        {
+            int nUshorts = nBytes / 2;
+            ushort[] ret = new ushort[nUshorts];
+            System.Buffer.BlockCopy(glbData, offset, ret, 0, nBytes);
+            return ret;
+        }
+
+        float[] GetFloats(byte[] glbData, int offset, int nBytes)
+        {
+            int nFloats = nBytes / 4;
+            float[] ret = new float[nFloats];
+            System.Buffer.BlockCopy(glbData, offset, ret, 0, nBytes);
+            return ret;
+        }
+
+        Vector3[] FloatsToVector3(float[] floats)
+        {
+            int nFloats = floats.Length;
+            int nVectors = nFloats / 3;
+            Vector3[] ret = new Vector3[nVectors];
+            for (int v = 0, f = 0; v < nVectors; v++, f += 3)
+            {
+                ret[v].x = floats[f + 0];
+                ret[v].y = floats[f + 1];
+                ret[v].z = floats[f + 2];
+            }
+            return ret;
+        }
+
+        Vector3[] FloatsToVector3Scaled(float[] floats, Vector3 scale)
+        {
+            int nFloats = floats.Length;
+            int nVectors = nFloats / 3;
+            Vector3[] ret = new Vector3[nVectors];
+            for (int v = 0, f = 0; v < nVectors; v++, f += 3)
+            {
+                ret[v] = new Vector3(
+                    floats[f + 0] * scale.x,
+                    floats[f + 1] * scale.y,
+                    floats[f + 2] * scale.z
+                    );
+            }
+            return ret;
+        }
+
+        Vector2[] FloatsToVector2(float[] floats)
+        {
+            int nFloats = floats.Length;
+            int nVectors = nFloats / 2;
+            Vector2[] ret = new Vector2[nVectors];
+            for (int v = 0, f = 0; v < nVectors; v++, f += 2)
+            {
+                ret[v].x = floats[f + 0];
+                ret[v].y = floats[f + 1];
+            }
+            return ret;
+        }
+
+        string Vector3ToString(Vector3 v)
+        {
+            return $"[{v.x},{v.y},{v.z}]";
+        }
+
+        ushort[] InvertTriangles(ushort[] indices)
+        {
+            int nTriangles = indices.Length / 3;
+            int i, b, c;
+            for (int t = 0; t < nTriangles; t++)
+            {
+                i = t * 3;
+                // a = i + 0;
+                b = i + 1;
+                c = i + 2;
+
+                ushort pointB = indices[b];
+                indices[b] = indices[c];
+                indices[c] = pointB;
+            }
+            return indices;
+        }
+
+        bool IsListComponentType(DataList list, TokenType type)
+        {
+            bool allOk = true;
+            int nElements = list.Count; ;
+            for (int e = 0; e < nElements; e++)
+            {
+                allOk |= (list[e].TokenType == type);
+            }
+            return allOk;
+        }
+
+        Quaternion DataListToQuaternion(DataList list)
+        {
+            return new Quaternion((float)(double)list[0], (float)(double)list[1], (float)(double)list[2], (float)(double)list[3]);
+        }
+
+        Vector3 DataListToVector3(DataList list)
+        {
+            return new Vector3((float)(double)list[0], (float)(double)list[1], (float)(double)list[2]);
+        }
+
+        Color DataListToColor(DataList list)
+        {
+            return new Color((float)(double)list[0], (float)(double)list[1], (float)(double)list[2], (float)(double)list[3]);
         }
 
         int ParseAccessors(int startFrom)
@@ -433,87 +503,7 @@ namespace VoyageVoyage
 
         }
 
-        ushort[] GetUshorts(byte[] glbData, int offset, int nBytes)
-        {
-            int nUshorts = nBytes / 2;
-            ushort[] ret = new ushort[nUshorts];
-            System.Buffer.BlockCopy(glbData, offset, ret, 0, nBytes);
-            return ret;
-        }
 
-        float[] GetFloats(byte[] glbData, int offset, int nBytes)
-        {
-            int nFloats = nBytes / 4;
-            float[] ret = new float[nFloats];
-            System.Buffer.BlockCopy(glbData, offset, ret, 0, nBytes);
-            return ret;
-        }
-
-        Vector3[] FloatsToVector3(float[] floats)
-        {
-            int nFloats = floats.Length;
-            int nVectors = nFloats / 3;
-            Vector3[] ret = new Vector3[nVectors];
-            for (int v = 0, f = 0; v < nVectors; v++, f += 3)
-            {
-                ret[v].x = floats[f + 0];
-                ret[v].y = floats[f + 1];
-                ret[v].z = floats[f + 2];
-            }
-            return ret;
-        }
-
-        Vector3[] FloatsToVector3Scaled(float[] floats, Vector3 scale)
-        {
-            int nFloats = floats.Length;
-            int nVectors = nFloats / 3;
-            Vector3[] ret = new Vector3[nVectors];
-            for (int v = 0, f = 0; v < nVectors; v++, f += 3)
-            {
-                ret[v] = new Vector3(
-                    floats[f + 0] * scale.x,
-                    floats[f + 1] * scale.y,
-                    floats[f + 2] * scale.z
-                    );
-            }
-            return ret;
-        }
-
-        Vector2[] FloatsToVector2(float[] floats)
-        {
-            int nFloats = floats.Length;
-            int nVectors = nFloats / 2;
-            Vector2[] ret = new Vector2[nVectors];
-            for (int v = 0, f = 0; v < nVectors; v++, f += 2)
-            {
-                ret[v].x = floats[f + 0];
-                ret[v].y = floats[f + 1];
-            }
-            return ret;
-        }
-
-        string Vector3ToString(Vector3 v)
-        {
-            return $"[{v.x},{v.y},{v.z}]";
-        }
-
-        ushort[] InvertTriangles(ushort[] indices)
-        {
-            int nTriangles = indices.Length / 3;
-            int i, b, c;
-            for (int t = 0; t < nTriangles; t++)
-            {
-                i = t * 3;
-                // a = i + 0;
-                b = i + 1;
-                c = i + 2;
-
-                ushort pointB = indices[b];
-                indices[b] = indices[c];
-                indices[c] = pointB;
-            }
-            return indices;
-        }
 
         Mesh LoadMeshFrom(int[] meshInfo, int startOffset)
         {
@@ -723,34 +713,6 @@ namespace VoyageVoyage
             }
             return sectionComplete;
         }
-
-        bool IsListComponentType(DataList list, TokenType type)
-        {
-            bool allOk = true;
-            int nElements = list.Count; ;
-            for (int e = 0; e < nElements; e++)
-            {
-                allOk |= (list[e].TokenType == type);
-            }
-            return allOk;
-        }
-
-        Quaternion DataListToQuaternion(DataList list)
-        {
-            return new Quaternion((float)(double)list[0], (float)(double)list[1], (float)(double)list[2], (float)(double)list[3]);
-        }
-
-        Vector3 DataListToVector3(DataList list)
-        {
-            return new Vector3((float)(double)list[0], (float)(double)list[1], (float)(double)list[2]);
-        }
-
-        Color DataListToColor(DataList list)
-        {
-            return new Color((float)(double)list[0], (float)(double)list[1], (float)(double)list[2], (float)(double)list[3]);
-        }
-
-
 
         bool ParseNode(DataDictionary node, out int meshIndex, out string name, out Vector3 position, out Quaternion rotation, out Vector3 scale, out int[] children)
         {
@@ -1250,18 +1212,16 @@ namespace VoyageVoyage
             return sectionComplete;
         }
 
-        bool parsing = false;
-
         void ParseError()
         {
             NotifyState("ParseError");
-            parsing = false;
+            enabled = false;
         }
 
         void ParseComplete()
         {
             NotifyState("SceneLoaded");
-            parsing = false;
+            enabled = false;
         }
 
         
@@ -1313,10 +1273,6 @@ namespace VoyageVoyage
 
         private void Update()
         {
-            if (!parsing)
-            {
-                return;
-            }
             ParseGLB();
         }
 
