@@ -26,7 +26,7 @@ namespace VoyageVoyage
         object[] m_accessors;
         Material[] m_materials;
         object[] m_meshesInfo;
-        Texture2D[] m_images;
+        public Texture2D[] m_images;
         GameObject[] m_nodes;
 
         const int errorValue = -2;
@@ -326,6 +326,11 @@ namespace VoyageVoyage
         Color DataListToColor(DataList list)
         {
             return new Color((float)(double)list[0], (float)(double)list[1], (float)(double)list[2], (float)(double)list[3]);
+        }
+
+        Color DataListToColorRGB(DataList list)
+        {
+            return new Color((float)(double)list[0], (float)(double)list[1], (float)(double)list[2]);
         }
 
         int ParseAccessors(int startFrom)
@@ -967,6 +972,33 @@ namespace VoyageVoyage
                     mat.SetFloat("_Glossiness", 1.0f - ((float)(double)roughnessToken));
                 }
             }
+
+            if (materialInfo.TryGetValue("emissiveFactor", TokenType.DataList, out DataToken emissionColorToken))
+            {
+                mat.EnableKeyword("_EMISSION");
+                mat.globalIlluminationFlags = MaterialGlobalIlluminationFlags.None;
+                mat.SetColor("_EmissionColor", DataListToColorRGB((DataList)emissionColorToken));
+            }
+
+            if (materialInfo.TryGetValue("emissiveTexture", TokenType.DataDictionary, out DataToken emissionTextureInfoToken))
+            {
+
+                int emissionTextureIndex = DictOptInt((DataDictionary)emissionTextureInfoToken, "index", -1);
+                if ((emissionTextureIndex >= 0) & (emissionTextureIndex < m_images.Length))
+                {
+                    Texture2D emissionTexture = m_images[emissionTextureIndex];
+                    if (emissionTexture != null)
+                    {
+                        mat.EnableKeyword("_EMISSION");
+                        mat.globalIlluminationFlags = MaterialGlobalIlluminationFlags.None;
+                        mat.SetTexture("_EmissionMap", emissionTexture);
+                    }
+                    else
+                    {
+                        ReportError("CreateMaterialFrom", $"Invalid emissive texture index {emissionTexture}");
+                    }
+                }
+            }
             // Let's forget about Double side for the moment...
             return mat;
         }
@@ -1088,6 +1120,7 @@ namespace VoyageVoyage
 
 
             Texture2D tex = new Texture2D(width, height, textureFormat, false);
+            tex.name = DictOptString(imageInfo, "name", "Anonymous");
             tex.LoadRawTextureData(textureData);
             tex.Apply(false, false);
             return tex;
