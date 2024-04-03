@@ -81,6 +81,17 @@ namespace VoyageVoyage
             return retValue;
         }
 
+        float DictOptFloat(DataDictionary dict, string fieldName, float defaultValue)
+        {
+            float retValue = defaultValue;
+            if (dict.TryGetValue(fieldName, TokenType.Double, out DataToken doubleToken))
+            {
+                return (float)(double)doubleToken;
+            }
+
+            return retValue;
+        }
+
         Vector3 DictOptVector3(DataDictionary dict, string fieldName, Vector3 defaultValue)
         {
             Vector3 retValue = defaultValue;
@@ -926,30 +937,48 @@ namespace VoyageVoyage
             material.renderQueue = 3000;
         }
 
+        Texture2D MaterialInfoGetTextureIfAvailable(DataDictionary info, string textureKey, out DataDictionary outTextureInfo)
+        {
+
+            outTextureInfo = null;
+            bool textureKeyExist = info.TryGetValue(textureKey, TokenType.DataDictionary, out DataToken textureInfoToken);
+            if (!textureKeyExist) return null;
+
+            outTextureInfo = (DataDictionary)textureInfoToken;
+
+            DataDictionary textureInfo = (DataDictionary)textureInfoToken;
+            bool hasIndex = textureInfo.TryGetValue("index", TokenType.Double, out DataToken indexToken);
+
+            if (!hasIndex) return null;
+
+            int textureIndex = (int)(double)indexToken;
+
+            if ((textureIndex < 0) | (textureIndex >= m_images.Length)) return null;
+
+            return m_images[textureIndex];
+        }
+
         Material CreateMaterialFrom(DataDictionary materialInfo)
         {
             Material mat = NewMaterial();
 
             mat.name = DictOptString(materialInfo, "name", mat.name);
 
+            Texture2D normalTexture = MaterialInfoGetTextureIfAvailable(materialInfo, "normalTexture", out DataDictionary normalTextureInfo);
+            if (normalTexture != null)
+            {
+                mat.EnableKeyword("_NORMALMAP");
+                // Gotta love the coherency here...
+                mat.SetTexture("_BumpMap", normalTexture);
+                mat.SetFloat("_BumpScale", DictOptFloat(normalTextureInfo, "scale", 1.0f));
+            }
+
             if (materialInfo.TryGetValue("pbrMetallicRoughness", TokenType.DataDictionary, out DataToken pbrToken))
             {
                 DataDictionary pbrInfo = (DataDictionary)pbrToken;
-                if (pbrInfo.TryGetValue("baseColorTexture", TokenType.DataDictionary, out DataToken textureInfoToken))
-                {
-                    //ReportInfo("CreateMaterialFrom", "BaseColorTexture");
-                    DataDictionary textureInfo = (DataDictionary)textureInfoToken;
-                    if (textureInfo.TryGetValue("index", TokenType.Double, out DataToken indexToken))
-                    {
-                        int textureIndex = (int)(double)indexToken;
-                        if ((textureIndex >= 0) & (textureIndex < m_images.Length))
-                        {
-                            //ReportInfo("CreateMaterialFrom", "Setting texture");
-                            mat.SetTexture("_MainTex", m_images[textureIndex]);
-                        }
-                    }
+                Texture2D albedoTexture = MaterialInfoGetTextureIfAvailable(pbrInfo, "baseColorTexture", out DataDictionary baseColorTexInfo);
+                if (albedoTexture != null) mat.SetTexture("_MainTex", albedoTexture);
 
-                }
                 if (pbrInfo.TryGetValue("baseColorFactor", TokenType.DataList, out DataToken colorToken))
                 {
                     DataList colorInfo = (DataList)colorToken;
@@ -971,6 +1000,11 @@ namespace VoyageVoyage
                 {
                     mat.SetFloat("_Glossiness", 1.0f - ((float)(double)roughnessToken));
                 }
+
+                Texture2D metallicRoughnessTexture = MaterialInfoGetTextureIfAvailable(pbrInfo, "metallicRoughnessTexture", out DataDictionary metalRoughTexInfo);
+                if (metallicRoughnessTexture != null) mat.SetTexture("_MetallicGlossMap", metallicRoughnessTexture);
+
+                
             }
 
             if (materialInfo.TryGetValue("emissiveFactor", TokenType.DataList, out DataToken emissionColorToken))
@@ -980,25 +1014,16 @@ namespace VoyageVoyage
                 mat.SetColor("_EmissionColor", DataListToColorRGB((DataList)emissionColorToken));
             }
 
-            if (materialInfo.TryGetValue("emissiveTexture", TokenType.DataDictionary, out DataToken emissionTextureInfoToken))
+            Texture2D emissionTexture = MaterialInfoGetTextureIfAvailable(materialInfo, "emissiveTexture", out DataDictionary emissiveTextureInfo);
+            if (emissionTexture != null)
             {
-
-                int emissionTextureIndex = DictOptInt((DataDictionary)emissionTextureInfoToken, "index", -1);
-                if ((emissionTextureIndex >= 0) & (emissionTextureIndex < m_images.Length))
-                {
-                    Texture2D emissionTexture = m_images[emissionTextureIndex];
-                    if (emissionTexture != null)
-                    {
-                        mat.EnableKeyword("_EMISSION");
-                        mat.globalIlluminationFlags = MaterialGlobalIlluminationFlags.None;
-                        mat.SetTexture("_EmissionMap", emissionTexture);
-                    }
-                    else
-                    {
-                        ReportError("CreateMaterialFrom", $"Invalid emissive texture index {emissionTexture}");
-                    }
-                }
+                mat.EnableKeyword("_EMISSION");
+                mat.globalIlluminationFlags = MaterialGlobalIlluminationFlags.None;
+                mat.SetTexture("_EmissionMap", emissionTexture);
             }
+
+            
+
             // Let's forget about Double side for the moment...
             return mat;
         }
@@ -1086,6 +1111,9 @@ namespace VoyageVoyage
             {
                 case "BGRA32":
                     textureFormat = TextureFormat.BGRA32;
+                    break;
+                case "DXT5":
+                    textureFormat = TextureFormat.DXT5;
                     break;
                 default:
                     ReportError("ParseImage", "Unknown texture format");
