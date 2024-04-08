@@ -21,7 +21,9 @@ namespace VoyageVoyage
         public MeshRenderer temporaryRenderer;
         public Material baseMaterial;
         public UdonSharpBehaviour[] stateReceivers;
-        
+
+        DataDictionary m_accessorTypesInfo;
+
         object[] m_bufferViews;
         object[] m_accessors;
         Material[] m_materials;
@@ -76,6 +78,17 @@ namespace VoyageVoyage
             if (dict.TryGetValue(fieldName, TokenType.Double, out DataToken doubleToken))
             {
                 return (int)(double)doubleToken;
+            }
+
+            return retValue;
+        }
+
+        float DictOptFloat(DataDictionary dict, string fieldName, float defaultValue)
+        {
+            float retValue = defaultValue;
+            if (dict.TryGetValue(fieldName, TokenType.Double, out DataToken doubleToken))
+            {
+                return (float)(double)doubleToken;
             }
 
             return retValue;
@@ -179,7 +192,26 @@ namespace VoyageVoyage
 
         void Start()
         {
-            //SetURL(glbUrl);
+            m_accessorTypesInfo = new DataDictionary();
+            m_accessorTypesInfo["VEC3"] = 3;
+            m_accessorTypesInfo["VEC2"] = 2;
+            m_accessorTypesInfo["SCALAR"] = 1;
+
+            // See https://kcoley.github.io/glTF/specification/2.0/
+            // 5120 is BYTE
+            m_accessorTypesInfo[5120] = 1;
+            // 5121 is UNSIGNED_BYTE
+            m_accessorTypesInfo[5121] = 1;
+            // 5122 is SHORT
+            m_accessorTypesInfo[5122] = 2;
+            // 5123 is UNSIGNED SHORT
+            m_accessorTypesInfo[5123] = 2;
+            // 5215 is UNSIGNED INT
+            m_accessorTypesInfo[5125] = 4;
+            // 5126 is FLOAT
+            m_accessorTypesInfo[5126] = 4;
+
+            //DownloadModel();
         }
 
         void DownloadModel()
@@ -211,10 +243,11 @@ namespace VoyageVoyage
             int nObjects = fieldNamesAndTypes.Length;
             for (int i = 0; i < nObjects; i += 2)
             {
-                string name = (string)fieldNamesAndTypes[i + 0];
+                string key = (string)fieldNamesAndTypes[i + 0];
                 TokenType type = (TokenType)fieldNamesAndTypes[i + 1];
+                ReportInfo("CheckFields", $"key is {key.GetType()}");
 
-                bool fieldIsOk = (dictionary.ContainsKey(name) && dictionary[name].TokenType == type);
+                bool fieldIsOk = (dictionary.ContainsKey(key) && dictionary[key].TokenType == type);
                 allFielsAreOk &= fieldIsOk;
             }
             return allFielsAreOk;
@@ -250,20 +283,18 @@ namespace VoyageVoyage
             return ret;
         }
 
-        Vector3[] FloatsToVector3Scaled(float[] floats, Vector3 scale)
+        Vector3[] RescaleVector3(Vector3[] vectors, Vector3 scale)
         {
-            int nFloats = floats.Length;
-            int nVectors = nFloats / 3;
-            Vector3[] ret = new Vector3[nVectors];
+            int nVectors = vectors.Length;
             for (int v = 0, f = 0; v < nVectors; v++, f += 3)
             {
-                ret[v] = new Vector3(
-                    floats[f + 0] * scale.x,
-                    floats[f + 1] * scale.y,
-                    floats[f + 2] * scale.z
-                    );
+                Vector3 vec = vectors[v];
+                vec.x *= scale.x;
+                vec.y *= scale.y;
+                vec.z *= scale.z;
+                vectors[v] = vec;
             }
-            return ret;
+            return vectors;
         }
 
         Vector2[] FloatsToVector2(float[] floats)
@@ -376,40 +407,34 @@ namespace VoyageVoyage
             }
             return sectionComplete;
         }
+
+        Vector3 invalidVector = new Vector3(float.NaN, float.NaN, float.NaN);
+
         object[] ParseAccessor(DataDictionary accessorInfo)
         {
-            bool check = CheckFields(accessorInfo, "bufferView", TokenType.Double);
-            if (!check)
-            {
-                ReportError("ParseAccessor", $"Unexpected format for Accessor Info : {accessorInfo}");
-                return null;
-            }
+            object[] accessor = new object[accessorFieldsCount];
 
-            int bufferViewIndex = (int)(double)accessorInfo["bufferView"];
-            if (bufferViewIndex >= m_bufferViews.Length)
-            {
-                ReportError("ParseAccessor", $"Accessor defining a buffer view {bufferViewIndex} out of bounds (max : {m_bufferViews.Length})");
-                return null;
-            }
+            accessor[accessorFieldBufferParsed] = false;
+            accessor[accessorFieldBufferReference] = null;
+            accessor[accessorFieldBufferBufferView] = DictOptInt(accessorInfo, "bufferView", -1);
+            accessor[accessorFieldBufferOffset] = DictOptInt(accessorInfo, "byteOffset", 0);
+            accessor[accessorFieldBufferCount] = DictOptInt(accessorInfo, "count", 0);
+            accessor[accessorFieldBufferComponentType] = DictOptInt(accessorInfo, "componentType", 0);
+            accessor[accessorFieldBufferType] = DictOptString(accessorInfo, "type", "_UNKNOWN_");
 
-            return new object[] {
-                m_bufferViews[bufferViewIndex],
-                DictOptInt(accessorInfo, "componentType", -1),
-                DictOptInt(accessorInfo, "count", 0),
-                DictOptString(accessorInfo, "type", "")
-            };
+            return accessor;
         }
         const int accessorBufferIndex = 0;
         const int accessorComponentTypeIndex = 1;
         const int accessorCountIndex = 2;
         const int accessorTypeIndex = 3;
 
-        bool GetSubmeshInfo(DataDictionary primitives, out int positionsView, out int normalsView, out int uvsView, out int indicesView, out int materialIndex)
+        bool GetSubmeshInfo(DataDictionary primitives, out int positionsAccessor, out int normalsAccessor, out int uvsAccessor, out int indicesAccessor, out int materialIndex)
         {
-            positionsView = -1;
-            normalsView = -1;
-            uvsView = -1;
-            indicesView = -1;
+            positionsAccessor = -1;
+            normalsAccessor = -1;
+            uvsAccessor = -1;
+            indicesAccessor = -1;
             materialIndex = -1;
 
             bool check = CheckFields(primitives, 
@@ -423,8 +448,7 @@ namespace VoyageVoyage
 
             DataDictionary attributes = (DataDictionary)primitives["attributes"];
             check = CheckFields(attributes,
-                "POSITION", TokenType.Double,
-                "NORMAL", TokenType.Double);
+                "POSITION", TokenType.Double);
             if (!check)
             {
                 ReportError("Getsubmeshinfo", $"Invalid attributes in {primitives}");
@@ -433,39 +457,37 @@ namespace VoyageVoyage
 
 
 
-            positionsView = (int)((double)attributes["POSITION"]);
-            normalsView = (int)((double)attributes["NORMAL"]);
-            indicesView = (int)((double)primitives["indices"]);
+            positionsAccessor = (int)((double)attributes["POSITION"]);
+            normalsAccessor = DictOptInt(attributes, "NORMAL", -1);
+            indicesAccessor = (int)((double)primitives["indices"]);
 
-            uvsView = DictOptInt(attributes, "TEXCOORD_0", -1);
+            uvsAccessor = DictOptInt(attributes, "TEXCOORD_0", -1);
             //ReportInfo("GetSubmeshInfo", $"TEXCOORD_0 : {uvsView}");
             materialIndex = DictOptInt(primitives, "material", -1);
             return true;
         }
 
-        const int meshInfoPositionViewIndex = 0;
-        const int meshInfoNormalsViewIndex = 1;
-        const int meshInfoUvsViewIndex = 2;
-        const int meshInfoIndicesViewIndex = 3;
+        const int meshInfoPositionAccessorIndex = 0;
+        const int meshInfoNormalsAccessorIndex = 1;
+        const int meshInfoUvsAccessorIndex = 2;
+        const int meshInfoIndicesAccessorIndex = 3;
         const int meshInfoNIndices = 4;
         bool GetMeshInfo(DataDictionary meshInfo, out string name, out int meshes, out int[] views, out int[] materialsIndices)
         {
-            name = "";
+            name = DictOptString(meshInfo, "name", "_GLBLoader_AnonymousMesh");
             meshes = 0;
             views = new int[0];
             materialsIndices = new int[0];
 
             bool check = CheckFields(
                 meshInfo,
-                "name", TokenType.String,
                 "primitives", TokenType.DataList);
             if (!check)
             {
-                ReportError("GetMeshInfo", $"MeshInfo has an unexpected format {meshInfo}");
+                ReportError("GetMeshInfo", "No primitives Dictionary in this Mesh Info");
                 return check;
             }
 
-            name = (string)meshInfo["name"];
             DataList primitives = (DataList)meshInfo["primitives"];
             int nMeshes = primitives.Count;
             int actualNumberOfMeshes = 0;
@@ -493,10 +515,10 @@ namespace VoyageVoyage
                     continue;
                 }
 
-                views[v + meshInfoPositionViewIndex] = positionsView;
-                views[v + meshInfoNormalsViewIndex] = normalsView;
-                views[v + meshInfoUvsViewIndex] = uvsView;
-                views[v + meshInfoIndicesViewIndex] = indicesView;
+                views[v + meshInfoPositionAccessorIndex] = positionsView;
+                views[v + meshInfoNormalsAccessorIndex] = normalsView;
+                views[v + meshInfoUvsAccessorIndex] = uvsView;
+                views[v + meshInfoIndicesAccessorIndex] = indicesView;
                 materialsIndices[m] = materialIndex;
                 //ReportInfo("GetMeshInfo", $"{name} : Mesh {m} - {positionsView},{normalsView},{uvsView},{indicesView},{materialIndex}");
                 v += meshInfoNIndices;
@@ -509,70 +531,193 @@ namespace VoyageVoyage
         }
 
 
+        const int accessorFieldBufferParsed = 0;
+        const int accessorFieldBufferReference = 1;
+        const int accessorFieldBufferBufferView = 2;
+        const int accessorFieldBufferComponentType = 3;
+        const int accessorFieldBufferOffset = 4;
+        const int accessorFieldBufferCount = 5;
+        const int accessorFieldBufferType = 6;
+        const int accessorFieldsCount = 7;
+
+        const int bufferViewFieldBufferIndex = 0;
+        const int bufferViewFieldOffset = 1;
+        const int bufferViewFieldSize = 2;
+        const int bufferViewFieldStride = 3;
+        const int bufferViewFieldTarget = 4;
+        const int bufferViewFieldsCount = 5;
+
+        /* TODO
+         * Parse bufferViews and only return their info
+         * Parse the buffers when accessed
+         * Check the result with PlayCanvas GLTF
+         */
+
+        object ParseAccessorBuffer(object[] accessor, bool rescale, Vector3 scaleFactor, bool alignOn3)
+        {
+            int bufferView = (int)accessor[accessorFieldBufferBufferView];
+            if ((bufferView < 0) | (bufferView >= m_bufferViews.Length))
+            {
+                return null;
+            }
+            int[] bufferInfo = (int[])m_bufferViews[bufferView];
+            if (bufferInfo == null)
+            {
+                return null;
+            }
+            int accessorComponentType = (int)accessor[accessorFieldBufferComponentType];
+            int accessorOffset = (int)accessor[accessorFieldBufferOffset];
+            int accessorCount = (int)accessor[accessorFieldBufferCount];
+            string accessorType = (string)accessor[accessorFieldBufferType];
+            int bufferOffset = bufferInfo[bufferViewFieldOffset];
+            int bufferSize = bufferInfo[bufferViewFieldSize];
+
+            if (!m_accessorTypesInfo.ContainsKey(accessorType))
+            {
+                return null;
+            }
+            if (!m_accessorTypesInfo.ContainsKey(accessorComponentType))
+            {
+                return null;
+            }
+
+            int nComponents = (int)m_accessorTypesInfo[accessorType];
+            // FIXME : Hack to get around non multiple of 3 triangles... Like... If you do this, fuck you really...
+            if (alignOn3)
+            {
+                //ReportInfo("ParseAccessorBuffer", $"Number of accessorCount before : {accessorCount}");
+                accessorCount = (accessorCount / 3) * 3;
+                //ReportInfo("ParseAccessorBuffer", $"Number of accessorCount after : {accessorCount}");
+            }
+            
+            int componentsSize = (int)m_accessorTypesInfo[accessorComponentType];
+            int arrayElementSize = nComponents * componentsSize;
+
+            int actualOffset = glbDataStart + bufferOffset + accessorOffset;
+            int readSizeInBytes = arrayElementSize * accessorCount;
+            if (readSizeInBytes > bufferSize) readSizeInBytes = bufferSize;
+
+            object buffer;
+            switch (accessorComponentType)
+            {
+                case 5126:
+                    buffer = GetFloats(glb, actualOffset, readSizeInBytes);
+                    buffer = (accessorType == "VEC3") ? FloatsToVector3((float[])buffer) : buffer;
+                    buffer = (accessorType == "VEC2") ? FloatsToVector2((float[])buffer) : buffer;
+                    break;
+                case 5123:
+                    buffer = InvertTriangles(GetUshorts(glb, actualOffset, readSizeInBytes));
+                    break;
+                default:
+                    ReportError("ParseAccessorBuffer", "Unhandled Component type !");
+                    return null;
+            }
+
+            if (rescale)
+            {
+                RescaleVector3((Vector3[])buffer, scaleFactor);
+            }
+
+            accessor[accessorFieldBufferReference] = buffer;
+            accessor[accessorFieldBufferParsed] = true;
+            return buffer;
+        }
+
+        object GetAccessorBuffer(int accessorIndex, bool rescale, Vector3 scaleFactor, bool alignOn3)
+        {
+            if (accessorIndex < 0)
+            {
+                return null;
+            }
+
+            if ((accessorIndex >= m_accessors.Length))
+            {
+                ReportError("GetAccessorBuffer", $"accessorIndex is out of bounds : {accessorIndex}:{m_accessors.Length - 1}");
+                return null;
+            }
+
+            object[] accessor = (object[])m_accessors[accessorIndex];
+            if (accessor == null)
+            {
+                ReportError("GetAccessorBuffer", $"No accessor info !");
+                return null;
+            }
+            
+            if (accessor.Length < accessorFieldsCount)
+            {
+                ReportError("GetAccessorBuffer", $"Not enough info in accessors {accessor.Length} < {accessorFieldsCount}");
+                return null;
+            }
+
+            bool bufferParsed = (bool)accessor[accessorFieldBufferParsed];
+            if (bufferParsed)
+            {
+                return accessor[accessorFieldBufferReference];
+            }
+
+            return ParseAccessorBuffer(accessor, rescale, scaleFactor, alignOn3);
+        }
+
+        System.Type vector3Array = typeof(Vector3[]);
+        System.Type ushortArray = typeof(ushort[]);
+        System.Type vector2Array = typeof(Vector2[]);
 
         Mesh LoadMeshFrom(int[] meshInfo, int startOffset)
         {
             Mesh m = new Mesh();
-            int nAccessors = m_accessors.Length;
-            int positionsView = meshInfo[startOffset + meshInfoPositionViewIndex];
-            int normalsView = meshInfo[startOffset + meshInfoNormalsViewIndex];
-            int uvsView = meshInfo[startOffset + meshInfoUvsViewIndex];
-            int indicesView = meshInfo[startOffset + meshInfoIndicesViewIndex];
 
-            //ReportInfo("LoadMeshFrom", $"positionsView : {positionsView}, normalsView : {normalsView}, uvsView : {uvsView}, indicesView : {indicesView}");
+            int positionsAccessorIndex = meshInfo[startOffset + meshInfoPositionAccessorIndex];
+            int normalsAccessorIndex = meshInfo[startOffset + meshInfoNormalsAccessorIndex];
+            int uvsAccessorIndex = meshInfo[startOffset + meshInfoUvsAccessorIndex];
+            int indicesAccessorIndex = meshInfo[startOffset + meshInfoIndicesAccessorIndex];
 
-            if ((positionsView >= nAccessors) | (normalsView >= nAccessors) | (uvsView >= nAccessors) | (indicesView >= nAccessors))
+            object positionsBuffer = GetAccessorBuffer(positionsAccessorIndex, true, new Vector3(-1,1,1), false);
+            if (positionsBuffer == null)
             {
-                ReportError("LoadMesh", $"Invalid views provided ({positionsView},{normalsView},{uvsView},{indicesView}) >= {nAccessors}");
-                return m;
-            }
-            object positionsAccessor = m_accessors[positionsView];
-            object normalsAccessor = m_accessors[normalsView];
-            object indicesAccessor = m_accessors[indicesView];
-
-            if ((positionsAccessor == null) | (normalsAccessor == null) | (indicesAccessor == null))
-            {
-                ReportError("LoadMesh", "Some buffers were null...");
+                ReportError("LoadMeshFrom", "Invalid Positions Accessor");
                 return m;
             }
 
-            object positionsBuffer = ((object[])positionsAccessor)[accessorBufferIndex];
-            object normalsBuffer = ((object[])normalsAccessor)[accessorBufferIndex];
-            object indicesBuffer = ((object[])indicesAccessor)[accessorBufferIndex];
+            object indicesBuffer = GetAccessorBuffer(indicesAccessorIndex, false, Vector3.zero, true);
+            if (indicesBuffer == null)
+            {
+                ReportError("LoadMeshFrom", "Invalid Indices Accessor");
+                return m;
+            }
 
+
+            if ((positionsBuffer.GetType() != vector3Array) | (indicesBuffer.GetType() != ushortArray))
+            {
+                ReportError("LoadMesh", $"Some buffer views types are invalid : {positionsBuffer.GetType()}, {indicesBuffer.GetType()}");
+                return m;
+            }
+
+            m.vertices = (Vector3[])positionsBuffer;
+
+            object normalsBuffer = GetAccessorBuffer(normalsAccessorIndex, true, new Vector3(-1, 1, 1), false);
+            if (normalsBuffer != null && normalsBuffer.GetType() == vector3Array)
+            {
+                m.normals = (Vector3[])normalsBuffer;
+            }
             
-            System.Type floatArray = typeof(float[]);
-            System.Type ushortArray = typeof(ushort[]);
-            if ((positionsBuffer.GetType() != floatArray)
-                | (normalsBuffer.GetType() != floatArray)
-                | (indicesBuffer.GetType() != ushortArray))
-            {
-                ReportError("LoadMesh", $"Some buffer views types are invalid : {positionsBuffer.GetType()}, {normalsBuffer.GetType()}, {indicesBuffer.GetType()}");
-                return m;
-            }
+            object uvsBuffer = GetAccessorBuffer(uvsAccessorIndex, false, Vector3.zero, false);
 
-            m.vertices = FloatsToVector3Scaled((float[])positionsBuffer, new Vector3(-1, 1, 1));
-            m.normals = FloatsToVector3Scaled((float[])normalsBuffer, new Vector3(-1, 1, 1));
-
-            if (uvsView > 0)
+            //ReportInfo("LoadMeshFrom", "Got an accessor !");
+            if (uvsBuffer != null && uvsBuffer.GetType() == vector2Array)
             {
-                //ReportInfo("LoadMeshFrom", "Got a UV view !");
-                object uvsAccessor = m_accessors[uvsView];
-                if (uvsAccessor != null)
-                {
-                    //ReportInfo("LoadMeshFrom", "Got an accessor !");
-                    object uvsBuffer = ((object[])uvsAccessor)[accessorBufferIndex];
-                    if (uvsBuffer.GetType() == floatArray)
-                    {
-                        //ReportInfo("LoadMeshFrom", "Setting up the UVS !");
-                        m.uv = FloatsToVector2((float[])uvsBuffer);
-                    }
-                } 
+                //ReportInfo("LoadMeshFrom", "Setting up the UVS !");
+                m.uv = (Vector2[])uvsBuffer;
             }
 
             ushort[] indices = (ushort[])indicesBuffer;
             //InvertTriangles(indices);
-            m.SetIndices(indices, MeshTopology.Triangles, 0);
+            ReportInfo("LoadMeshFrom", $"Indices : {indices.Length} (% 3 ? {indices.Length % 3})");
+
+            m.SetIndices(indices, (indices.Length % 3 == 0) ? MeshTopology.Triangles : MeshTopology.Points, 0);
+            if (normalsBuffer == null)
+            {
+                m.RecalculateNormals();
+            }
             
             return m;
 
@@ -591,6 +736,7 @@ namespace VoyageVoyage
 
             //ReportInfo("LoadMesh", $"$Mesh : {name} nSubmeshes : {nSubmeshes}");
 
+            int indicesSum = 0;
             CombineInstance[] instances = new CombineInstance[nSubmeshes];
             for (int s = 0; s < nSubmeshes; s++)
             {
@@ -598,18 +744,26 @@ namespace VoyageVoyage
                 instance.transform = Matrix4x4.identity;
                 instance.mesh = LoadMeshFrom(submeshesInfo, s * meshInfoNIndices);
                 instance.subMeshIndex = 0;
+                indicesSum += instance.mesh.vertexCount;
                 instances[s] = instance;
             }
+
+            ReportInfo("LoadMesh", $"Indices : {indicesSum}");
+            mesh.indexFormat = (indicesSum < 65535) ? UnityEngine.Rendering.IndexFormat.UInt16 : UnityEngine.Rendering.IndexFormat.UInt32;
 
             mesh.CombineMeshes(instances, false);
             return true;
         }
 
-        void GetBufferViewInfo(DataDictionary bufferView, out int byteOffset, out int byteLength, out int target)
+        int[] GetBufferViewInfo(DataDictionary bufferViewInfo)
         {
-            byteLength = DictOptInt(bufferView, "byteLength", 0);
-            byteOffset = DictOptInt(bufferView, "byteOffset", 0);
-            target = DictOptInt(bufferView, "target", 0);
+            int[] bufferView = new int[bufferViewFieldsCount];
+            bufferView[bufferViewFieldBufferIndex] = DictOptInt(bufferViewInfo, "buffer", 0);
+            bufferView[bufferViewFieldOffset] = DictOptInt(bufferViewInfo, "byteOffset", 0);
+            bufferView[bufferViewFieldSize] = DictOptInt(bufferViewInfo, "byteLength", 0);
+            bufferView[bufferViewFieldTarget] = DictOptInt(bufferViewInfo, "target", 0);
+            bufferView[bufferViewFieldStride] = DictOptInt(bufferViewInfo, "byteStride", 0);
+            return bufferView;
         }
 
         int ParseBufferViews(int startFrom)
@@ -647,30 +801,7 @@ namespace VoyageVoyage
                     views[v] = null;
                 }
                 DataDictionary bufferView = (DataDictionary)bufferViewToken;
-                GetBufferViewInfo(bufferView, out int localOffset, out int nBytes, out int target);
-
-                int offset = glbDataStart + localOffset;
-                switch (target)
-                {
-                    case 0:
-                        views[v] = new int[] { offset, nBytes };
-                        break;
-                    case 34962:
-                        views[v] = GetFloats(glb, offset, nBytes);
-                        break;
-                    case 34963:
-                        views[v] = InvertTriangles(GetUshorts(glb, offset, nBytes));
-                        break;
-                    default:
-                        ReportInfo("GLB", $"Unhandled buffer view target {target}");
-                        views[v] = null;
-                        break;
-                }
-
-                if ((v != startFrom) & (!StillHaveTime()))
-                {
-                    return v;
-                }
+                views[v] = GetBufferViewInfo(bufferView);
             }
             return sectionComplete;
         }
@@ -794,7 +925,10 @@ namespace VoyageVoyage
             renderer.sharedMaterials = sharedMaterials;
 
             BoxCollider boxCollider = node.GetComponent<BoxCollider>();
-            boxCollider.center = renderer.bounds.center;
+            Vector3 center = renderer.bounds.center;
+            center.x *= -1;
+            center.z *= -1;
+            boxCollider.center = center;
             boxCollider.size = renderer.bounds.size;
         }
 
@@ -914,7 +1048,7 @@ namespace VoyageVoyage
         }
 
         // Shamelessly stolen from https://forum.unity.com/threads/standard-material-shader-ignoring-setfloat-property-_mode.344557/
-        public static void SetAsFade(Material material)
+        public static void MaterialSetAsFade(Material material)
         {
             material.SetOverrideTag("RenderType", "Transparent");
             material.DisableKeyword("_ALPHATEST_ON");
@@ -926,30 +1060,70 @@ namespace VoyageVoyage
             material.renderQueue = 3000;
         }
 
+        public static void MaterialSetAsCutout(Material material, float threshold)
+        {
+            Debug.Log("Setting material as Cutout !");
+            material.SetOverrideTag("RenderType", "TransparentCutout");
+            material.SetFloat("_Cutoff", threshold);
+            material.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.One);
+            material.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.Zero);
+            material.SetInt("_ZWrite", 1);
+            material.EnableKeyword("_ALPHATEST_ON");
+            material.DisableKeyword("_ALPHABLEND_ON");
+            material.DisableKeyword("_ALPHAPREMULTIPLY_ON");
+            material.renderQueue = 2450;
+        }
+
+        Texture2D MaterialInfoGetTextureIfAvailable(DataDictionary info, string textureKey, out DataDictionary outTextureInfo)
+        {
+
+            outTextureInfo = null;
+            bool textureKeyExist = info.TryGetValue(textureKey, TokenType.DataDictionary, out DataToken textureInfoToken);
+            if (!textureKeyExist) return null;
+
+            outTextureInfo = (DataDictionary)textureInfoToken;
+
+            DataDictionary textureInfo = (DataDictionary)textureInfoToken;
+            bool hasIndex = textureInfo.TryGetValue("index", TokenType.Double, out DataToken indexToken);
+
+            if (!hasIndex) return null;
+
+            int textureIndex = (int)(double)indexToken;
+
+            if ((textureIndex < 0) | (textureIndex >= m_images.Length)) return null;
+
+            return m_images[textureIndex];
+        }
+
         Material CreateMaterialFrom(DataDictionary materialInfo)
         {
             Material mat = NewMaterial();
 
             mat.name = DictOptString(materialInfo, "name", mat.name);
 
+            Texture2D normalTexture = MaterialInfoGetTextureIfAvailable(materialInfo, "normalTexture", out DataDictionary normalTextureInfo);
+            if (normalTexture != null)
+            {
+                mat.EnableKeyword("_NORMALMAP");
+                // Gotta love the coherency here...
+                mat.SetTexture("_BumpMap", normalTexture);
+                mat.SetFloat("_BumpScale", DictOptFloat(normalTextureInfo, "scale", 1.0f));
+            }
+
+            string alphaMode = DictOptString(materialInfo, "alphaMode", "");
+            /* FIXME Handle different Alpha modes correctly ! */
+            if (alphaMode != "")
+            {
+                if (alphaMode == "BLEND") MaterialSetAsFade(mat);
+                else if (alphaMode == "MASK") MaterialSetAsCutout(mat, DictOptFloat(materialInfo, "alphaCutoff", 0.5f));
+            }
+
             if (materialInfo.TryGetValue("pbrMetallicRoughness", TokenType.DataDictionary, out DataToken pbrToken))
             {
                 DataDictionary pbrInfo = (DataDictionary)pbrToken;
-                if (pbrInfo.TryGetValue("baseColorTexture", TokenType.DataDictionary, out DataToken textureInfoToken))
-                {
-                    //ReportInfo("CreateMaterialFrom", "BaseColorTexture");
-                    DataDictionary textureInfo = (DataDictionary)textureInfoToken;
-                    if (textureInfo.TryGetValue("index", TokenType.Double, out DataToken indexToken))
-                    {
-                        int textureIndex = (int)(double)indexToken;
-                        if ((textureIndex >= 0) & (textureIndex < m_images.Length))
-                        {
-                            //ReportInfo("CreateMaterialFrom", "Setting texture");
-                            mat.SetTexture("_MainTex", m_images[textureIndex]);
-                        }
-                    }
+                Texture2D albedoTexture = MaterialInfoGetTextureIfAvailable(pbrInfo, "baseColorTexture", out DataDictionary baseColorTexInfo);
+                if (albedoTexture != null) mat.SetTexture("_MainTex", albedoTexture);
 
-                }
                 if (pbrInfo.TryGetValue("baseColorFactor", TokenType.DataList, out DataToken colorToken))
                 {
                     DataList colorInfo = (DataList)colorToken;
@@ -959,7 +1133,7 @@ namespace VoyageVoyage
                         mat.color = color;
                         if (color.a < 1)
                         {
-                            SetAsFade(mat);
+                            MaterialSetAsFade(mat);
                         }
                     }
                 }
@@ -971,6 +1145,11 @@ namespace VoyageVoyage
                 {
                     mat.SetFloat("_Glossiness", 1.0f - ((float)(double)roughnessToken));
                 }
+
+                Texture2D metallicRoughnessTexture = MaterialInfoGetTextureIfAvailable(pbrInfo, "metallicRoughnessTexture", out DataDictionary metalRoughTexInfo);
+                if (metallicRoughnessTexture != null) mat.SetTexture("_MetallicGlossMap", metallicRoughnessTexture);
+
+                
             }
 
             if (materialInfo.TryGetValue("emissiveFactor", TokenType.DataList, out DataToken emissionColorToken))
@@ -980,25 +1159,16 @@ namespace VoyageVoyage
                 mat.SetColor("_EmissionColor", DataListToColorRGB((DataList)emissionColorToken));
             }
 
-            if (materialInfo.TryGetValue("emissiveTexture", TokenType.DataDictionary, out DataToken emissionTextureInfoToken))
+            Texture2D emissionTexture = MaterialInfoGetTextureIfAvailable(materialInfo, "emissiveTexture", out DataDictionary emissiveTextureInfo);
+            if (emissionTexture != null)
             {
-
-                int emissionTextureIndex = DictOptInt((DataDictionary)emissionTextureInfoToken, "index", -1);
-                if ((emissionTextureIndex >= 0) & (emissionTextureIndex < m_images.Length))
-                {
-                    Texture2D emissionTexture = m_images[emissionTextureIndex];
-                    if (emissionTexture != null)
-                    {
-                        mat.EnableKeyword("_EMISSION");
-                        mat.globalIlluminationFlags = MaterialGlobalIlluminationFlags.None;
-                        mat.SetTexture("_EmissionMap", emissionTexture);
-                    }
-                    else
-                    {
-                        ReportError("CreateMaterialFrom", $"Invalid emissive texture index {emissionTexture}");
-                    }
-                }
+                mat.EnableKeyword("_EMISSION");
+                mat.globalIlluminationFlags = MaterialGlobalIlluminationFlags.None;
+                mat.SetTexture("_EmissionMap", emissionTexture);
             }
+
+            
+
             // Let's forget about Double side for the moment...
             return mat;
         }
@@ -1087,6 +1257,9 @@ namespace VoyageVoyage
                 case "BGRA32":
                     textureFormat = TextureFormat.BGRA32;
                     break;
+                case "DXT5":
+                    textureFormat = TextureFormat.DXT5;
+                    break;
                 default:
                     ReportError("ParseImage", "Unknown texture format");
                     return null;
@@ -1098,22 +1271,10 @@ namespace VoyageVoyage
                 ReportError("ParseImage", $"Invalid buffer view {bufferViewIndex}");
                 return null;
             }
-            object bufferView = m_bufferViews[bufferViewIndex];
-            if (bufferView == null)
-            {
-                ReportError("ParseImage", $"Buffer view {bufferViewIndex} is null");
-                return null;
-            }
-            if (bufferView.GetType() != typeof(int[]))
-            {
-                ReportError("ParseImage", $"Buffer view {bufferViewIndex} has an invalid type");
-                return null;
-            }
+            int[] bufferView = (int[])m_bufferViews[bufferViewIndex];
 
-
-            int[] offsetAndSize = (int[])bufferView;
-            int offset = offsetAndSize[offsetIndex];
-            int size = offsetAndSize[sizeIndex];
+            int offset = glbDataStart + bufferView[bufferViewFieldOffset];
+            int size = bufferView[bufferViewFieldSize];
 
             byte[] textureData = new byte[size];
             Buffer.BlockCopy(glb, offset, textureData, 0, size);
