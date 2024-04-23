@@ -261,6 +261,14 @@ namespace VoyageVoyage
             return ret;
         }
 
+        int[] GetUints(byte[] glbData, int offset, int nBytes)
+        {
+            int nUints = nBytes / 4;
+            int[] ret = new int[nUints];
+            System.Buffer.BlockCopy(glbData, offset, ret, 0, nBytes);
+            return ret;
+        }
+
         float[] GetFloats(byte[] glbData, int offset, int nBytes)
         {
             int nFloats = nBytes / 4;
@@ -327,6 +335,24 @@ namespace VoyageVoyage
                 c = i + 2;
 
                 ushort pointB = indices[b];
+                indices[b] = indices[c];
+                indices[c] = pointB;
+            }
+            return indices;
+        }
+
+        int[] InvertTriangles(int[] indices)
+        {
+            int nTriangles = indices.Length / 3;
+            int i, b, c;
+            for (int t = 0; t < nTriangles; t++)
+            {
+                i = t * 3;
+                // a = i + 0;
+                b = i + 1;
+                c = i + 2;
+
+                int pointB = indices[b];
                 indices[b] = indices[c];
                 indices[c] = pointB;
             }
@@ -608,8 +634,11 @@ namespace VoyageVoyage
                 case 5123:
                     buffer = InvertTriangles(GetUshorts(glb, actualOffset, readSizeInBytes));
                     break;
+                case 5125:
+                    buffer = InvertTriangles(GetUints(glb, actualOffset, readSizeInBytes));
+                    break;
                 default:
-                    ReportError("ParseAccessorBuffer", "Unhandled Component type !");
+                    ReportError("ParseAccessorBuffer", $"Unhandled Component type {accessorComponentType} !");
                     return null;
             }
 
@@ -661,6 +690,7 @@ namespace VoyageVoyage
         System.Type vector3Array = typeof(Vector3[]);
         System.Type ushortArray = typeof(ushort[]);
         System.Type vector2Array = typeof(Vector2[]);
+        System.Type intArray = typeof(int[]);
 
         Mesh LoadMeshFrom(int[] meshInfo, int startOffset)
         {
@@ -686,7 +716,7 @@ namespace VoyageVoyage
             }
 
 
-            if ((positionsBuffer.GetType() != vector3Array) | (indicesBuffer.GetType() != ushortArray))
+            if ((positionsBuffer.GetType() != vector3Array) | ((indicesBuffer.GetType() != ushortArray) && (indicesBuffer.GetType() != intArray)))
             {
                 ReportError("LoadMesh", $"Some buffer views types are invalid : {positionsBuffer.GetType()}, {indicesBuffer.GetType()}");
                 return m;
@@ -709,11 +739,18 @@ namespace VoyageVoyage
                 m.uv = (Vector2[])uvsBuffer;
             }
 
-            ushort[] indices = (ushort[])indicesBuffer;
-            //InvertTriangles(indices);
-            ReportInfo("LoadMeshFrom", $"Indices : {indices.Length} (% 3 ? {indices.Length % 3})");
+            if (indicesBuffer.GetType() == ushortArray)
+            {
+                ushort[] indices = (ushort[])indicesBuffer;
+                ReportInfo("LoadMeshFrom", $"Indices : {indices.Length} (% 3 ? {indices.Length % 3})");
+                m.SetIndices(indices, MeshTopology.Triangles, 0);
+            }
+            else if (indicesBuffer.GetType() == intArray)
+            {
+                int[] indices = (int[])indicesBuffer;
+                m.SetIndices(indices, MeshTopology.Triangles, 0);
+            }
 
-            m.SetIndices(indices, (indices.Length % 3 == 0) ? MeshTopology.Triangles : MeshTopology.Points, 0);
             if (normalsBuffer == null)
             {
                 m.RecalculateNormals();
@@ -1259,6 +1296,9 @@ namespace VoyageVoyage
                     break;
                 case "DXT5":
                     textureFormat = TextureFormat.DXT5;
+                    break;
+                case "BC7":
+                    textureFormat = TextureFormat.BC7;
                     break;
                 default:
                     ReportError("ParseImage", "Unknown texture format");
