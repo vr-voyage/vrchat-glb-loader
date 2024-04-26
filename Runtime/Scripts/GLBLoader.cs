@@ -1215,15 +1215,15 @@ namespace VoyageVoyage
                 {
                     mat.SetFloat("_Metallic", (float)(double)metallicToken);
                 }
-                if (pbrInfo.TryGetValue("roughnessFactor", TokenType.Double,  out DataToken roughnessToken))
-                {
-                    mat.SetFloat("_Glossiness", 1.0f - ((float)(double)roughnessToken));
-                }
+
+
 
                 Texture2D metallicRoughnessTexture = MaterialInfoGetTextureIfAvailable(pbrInfo, "metallicRoughnessTexture", out DataDictionary metalRoughTexInfo);
                 if (metallicRoughnessTexture != null) mat.SetTexture("_MetallicGlossMap", metallicRoughnessTexture);
 
-                
+                float roughness = DictOptFloat(pbrInfo, "roughnessFactor", 1f);
+                mat.SetFloat("_Glossiness", 1- roughness);
+                mat.SetFloat("_GlossMapScale", 1 - roughness);
             }
 
             if (materialInfo.TryGetValue("emissiveFactor", TokenType.DataList, out DataToken emissionColorToken))
