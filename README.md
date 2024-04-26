@@ -1,4 +1,4 @@
-# Still at its infancy
+# It's starting to work pretty well
 
 A Udon-ready GLTF Binary (GLB) loader.
 
@@ -6,9 +6,13 @@ A Udon-ready GLTF Binary (GLB) loader.
 
 The point is to be able to load GLB data in-game.
 
-For the moment it handles simple scenes.
-Textures support is only available when encoding the
-textures through a specific add-on, and is still added
-in a very hacky (and probably broken way).
+This is now handling complex scenes. There's still a lot of
+cases that are not tested, but this can load GLB models from
+Sketchfab, for example, as long as you preconvert the textures before.
 
-So it kind of works but... still meh.
+A converter is available here : 
+
+The pre-conversion just ensure that the textures are using
+a GPU-ready format like DXT5 or BC7.  
+The reason being that I still have no idea on how I could convert
+JPEG or PNG data to a texture using U#, since LoadImage is not whitelisted.

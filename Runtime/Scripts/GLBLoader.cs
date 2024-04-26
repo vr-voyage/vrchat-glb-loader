@@ -122,6 +122,22 @@ namespace VoyageVoyage
             return retValue;
         }
 
+        Matrix4x4 DictOptMatrix4x4(DataDictionary dict, string fieldName, Matrix4x4 defaultMatrix)
+        {
+            Matrix4x4 retValue = defaultMatrix;
+
+            if (dict.TryGetValue(fieldName, TokenType.DataList, out DataToken dataListToken))
+            {
+                DataList list = (DataList)dataListToken;
+                if ((list.Count >= 16) && (IsListComponentType(list, TokenType.Double)))
+                {
+                    retValue = DataListToMatrix4x4(list);
+                }
+            }
+
+            return retValue;
+        }
+
         public float IsAlive(float retValue)
         {
             return retValue;
@@ -388,6 +404,16 @@ namespace VoyageVoyage
         Color DataListToColorRGB(DataList list)
         {
             return new Color((float)(double)list[0], (float)(double)list[1], (float)(double)list[2]);
+        }
+
+        Matrix4x4 DataListToMatrix4x4(DataList list)
+        {
+            return new Matrix4x4(
+                new Vector4((float)(double)list[0], (float)(double)list[1], (float)(double)list[2], (float)(double)list[3]),
+                new Vector4((float)(double)list[4], (float)(double)list[5], (float)(double)list[6], (float)(double)list[7]),
+                new Vector4((float)(double)list[8], (float)(double)list[9], (float)(double)list[10], (float)(double)list[11]),
+                new Vector4((float)(double)list[12], (float)(double)list[13], (float)(double)list[14], (float)(double)list[15])
+                );
         }
 
         int ParseAccessors(int startFrom)
@@ -891,9 +917,20 @@ namespace VoyageVoyage
         {
             meshIndex = DictOptInt(node, "mesh", -1);
             name = DictOptString(node, "name", "");
-            position = DictOptVector3(node, "translation", Vector3.zero);
-            rotation = DictOptQuaternion(node, "rotation", Quaternion.identity);
-            scale = DictOptVector3(node, "scale", Vector3.one);
+            if (node.ContainsKey("matrix"))
+            {
+                Matrix4x4 matrix = DictOptMatrix4x4(node, "matrix", Matrix4x4.identity);
+                position = matrix.GetPosition();
+                rotation = matrix.rotation;
+                scale = matrix.lossyScale;
+            }
+            else
+            {
+                position = DictOptVector3(node, "translation", Vector3.zero);
+                rotation = DictOptQuaternion(node, "rotation", Quaternion.identity);
+                scale = DictOptVector3(node, "scale", Vector3.one);
+            }
+
             children = new int[0];
 
             if (node.TryGetValue("children", TokenType.DataList, out DataToken childrenToken))
