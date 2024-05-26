@@ -122,6 +122,22 @@ namespace VoyageVoyage
             return retValue;
         }
 
+        Matrix4x4 DictOptMatrix4x4(DataDictionary dict, string fieldName, Matrix4x4 defaultMatrix)
+        {
+            Matrix4x4 retValue = defaultMatrix;
+
+            if (dict.TryGetValue(fieldName, TokenType.DataList, out DataToken dataListToken))
+            {
+                DataList list = (DataList)dataListToken;
+                if ((list.Count >= 16) && (IsListComponentType(list, TokenType.Double)))
+                {
+                    retValue = DataListToMatrix4x4(list);
+                }
+            }
+
+            return retValue;
+        }
+
         public float IsAlive(float retValue)
         {
             return retValue;
@@ -261,6 +277,14 @@ namespace VoyageVoyage
             return ret;
         }
 
+        int[] GetUints(byte[] glbData, int offset, int nBytes)
+        {
+            int nUints = nBytes / 4;
+            int[] ret = new int[nUints];
+            System.Buffer.BlockCopy(glbData, offset, ret, 0, nBytes);
+            return ret;
+        }
+
         float[] GetFloats(byte[] glbData, int offset, int nBytes)
         {
             int nFloats = nBytes / 4;
@@ -269,12 +293,16 @@ namespace VoyageVoyage
             return ret;
         }
 
-        Vector3[] FloatsToVector3(float[] floats)
+        Vector3[] FloatsToVector3(float[] floats, int nFloats, int byteStride)
         {
-            int nFloats = floats.Length;
+            int floatStride = 3;
+            if (byteStride > 12)
+            {
+                floatStride = byteStride / 4;
+            }
             int nVectors = nFloats / 3;
             Vector3[] ret = new Vector3[nVectors];
-            for (int v = 0, f = 0; v < nVectors; v++, f += 3)
+            for (int v = 0, f = 0; v < nVectors; v++, f += floatStride)
             {
                 ret[v].x = floats[f + 0];
                 ret[v].y = floats[f + 1];
@@ -297,12 +325,16 @@ namespace VoyageVoyage
             return vectors;
         }
 
-        Vector2[] FloatsToVector2(float[] floats)
+        Vector2[] FloatsToVector2(float[] floats, int nFloats, int byteStride)
         {
-            int nFloats = floats.Length;
+            int floatStride = 2;
+            if (byteStride > 8)
+            {
+                floatStride = byteStride / 4;
+            }
             int nVectors = nFloats / 2;
             Vector2[] ret = new Vector2[nVectors];
-            for (int v = 0, f = 0; v < nVectors; v++, f += 2)
+            for (int v = 0, f = 0; v < nVectors; v++, f += floatStride)
             {
                 ret[v].x = floats[f + 0];
                 ret[v].y = floats[f + 1];
@@ -327,6 +359,24 @@ namespace VoyageVoyage
                 c = i + 2;
 
                 ushort pointB = indices[b];
+                indices[b] = indices[c];
+                indices[c] = pointB;
+            }
+            return indices;
+        }
+
+        int[] InvertTriangles(int[] indices)
+        {
+            int nTriangles = indices.Length / 3;
+            int i, b, c;
+            for (int t = 0; t < nTriangles; t++)
+            {
+                i = t * 3;
+                // a = i + 0;
+                b = i + 1;
+                c = i + 2;
+
+                int pointB = indices[b];
                 indices[b] = indices[c];
                 indices[c] = pointB;
             }
@@ -362,6 +412,16 @@ namespace VoyageVoyage
         Color DataListToColorRGB(DataList list)
         {
             return new Color((float)(double)list[0], (float)(double)list[1], (float)(double)list[2]);
+        }
+
+        Matrix4x4 DataListToMatrix4x4(DataList list)
+        {
+            return new Matrix4x4(
+                new Vector4((float)(double)list[0], (float)(double)list[1], (float)(double)list[2], (float)(double)list[3]),
+                new Vector4((float)(double)list[4], (float)(double)list[5], (float)(double)list[6], (float)(double)list[7]),
+                new Vector4((float)(double)list[8], (float)(double)list[9], (float)(double)list[10], (float)(double)list[11]),
+                new Vector4((float)(double)list[12], (float)(double)list[13], (float)(double)list[14], (float)(double)list[15])
+                );
         }
 
         int ParseAccessors(int startFrom)
@@ -571,6 +631,7 @@ namespace VoyageVoyage
             string accessorType = (string)accessor[accessorFieldBufferType];
             int bufferOffset = bufferInfo[bufferViewFieldOffset];
             int bufferSize = bufferInfo[bufferViewFieldSize];
+            int byteStride = bufferInfo[bufferViewFieldStride];
 
             if (!m_accessorTypesInfo.ContainsKey(accessorType))
             {
@@ -592,24 +653,38 @@ namespace VoyageVoyage
             
             int componentsSize = (int)m_accessorTypesInfo[accessorComponentType];
             int arrayElementSize = nComponents * componentsSize;
+            
+            
 
             int actualOffset = glbDataStart + bufferOffset + accessorOffset;
             int readSizeInBytes = arrayElementSize * accessorCount;
             if (readSizeInBytes > bufferSize) readSizeInBytes = bufferSize;
 
+            ReportInfo("ParseAccessorBuffer", $"ByteStride : {byteStride}, natural stride : {arrayElementSize} - Read {readSizeInBytes} of {bufferSize}");
+            int actualStride = (byteStride == 0) ? arrayElementSize : byteStride;
+
             object buffer;
             switch (accessorComponentType)
             {
                 case 5126:
-                    buffer = GetFloats(glb, actualOffset, readSizeInBytes);
-                    buffer = (accessorType == "VEC3") ? FloatsToVector3((float[])buffer) : buffer;
-                    buffer = (accessorType == "VEC2") ? FloatsToVector2((float[])buffer) : buffer;
+                    // Strange decision but we'll go with bufferSize instead of readSizeInBytes
+                    buffer = GetFloats(glb, actualOffset, bufferSize); // GetFloats(glb, actualOffset, readSizeInBytes);
+
+                    // For performances reasons, let's assume that the stride is a multiple of 4
+                    // Still, Let's hope that I won't have to get the floats ONE by ONE due to some stupid byteStride
+
+                    
+                    buffer = (accessorType == "VEC3") ? FloatsToVector3((float[])buffer, readSizeInBytes/4, byteStride) : buffer;
+                    buffer = (accessorType == "VEC2") ? FloatsToVector2((float[])buffer, readSizeInBytes/4, byteStride) : buffer;
                     break;
                 case 5123:
                     buffer = InvertTriangles(GetUshorts(glb, actualOffset, readSizeInBytes));
                     break;
+                case 5125:
+                    buffer = InvertTriangles(GetUints(glb, actualOffset, readSizeInBytes));
+                    break;
                 default:
-                    ReportError("ParseAccessorBuffer", "Unhandled Component type !");
+                    ReportError("ParseAccessorBuffer", $"Unhandled Component type {accessorComponentType} !");
                     return null;
             }
 
@@ -661,6 +736,7 @@ namespace VoyageVoyage
         System.Type vector3Array = typeof(Vector3[]);
         System.Type ushortArray = typeof(ushort[]);
         System.Type vector2Array = typeof(Vector2[]);
+        System.Type intArray = typeof(int[]);
 
         Mesh LoadMeshFrom(int[] meshInfo, int startOffset)
         {
@@ -686,7 +762,7 @@ namespace VoyageVoyage
             }
 
 
-            if ((positionsBuffer.GetType() != vector3Array) | (indicesBuffer.GetType() != ushortArray))
+            if ((positionsBuffer.GetType() != vector3Array) | ((indicesBuffer.GetType() != ushortArray) && (indicesBuffer.GetType() != intArray)))
             {
                 ReportError("LoadMesh", $"Some buffer views types are invalid : {positionsBuffer.GetType()}, {indicesBuffer.GetType()}");
                 return m;
@@ -709,11 +785,18 @@ namespace VoyageVoyage
                 m.uv = (Vector2[])uvsBuffer;
             }
 
-            ushort[] indices = (ushort[])indicesBuffer;
-            //InvertTriangles(indices);
-            ReportInfo("LoadMeshFrom", $"Indices : {indices.Length} (% 3 ? {indices.Length % 3})");
+            if (indicesBuffer.GetType() == ushortArray)
+            {
+                ushort[] indices = (ushort[])indicesBuffer;
+                ReportInfo("LoadMeshFrom", $"Indices : {indices.Length} (% 3 ? {indices.Length % 3})");
+                m.SetIndices(indices, MeshTopology.Triangles, 0);
+            }
+            else if (indicesBuffer.GetType() == intArray)
+            {
+                int[] indices = (int[])indicesBuffer;
+                m.SetIndices(indices, MeshTopology.Triangles, 0);
+            }
 
-            m.SetIndices(indices, (indices.Length % 3 == 0) ? MeshTopology.Triangles : MeshTopology.Points, 0);
             if (normalsBuffer == null)
             {
                 m.RecalculateNormals();
@@ -854,9 +937,20 @@ namespace VoyageVoyage
         {
             meshIndex = DictOptInt(node, "mesh", -1);
             name = DictOptString(node, "name", "");
-            position = DictOptVector3(node, "translation", Vector3.zero);
-            rotation = DictOptQuaternion(node, "rotation", Quaternion.identity);
-            scale = DictOptVector3(node, "scale", Vector3.one);
+            if (node.ContainsKey("matrix"))
+            {
+                Matrix4x4 matrix = DictOptMatrix4x4(node, "matrix", Matrix4x4.identity);
+                position = matrix.GetPosition();
+                rotation = matrix.rotation;
+                scale = matrix.lossyScale;
+            }
+            else
+            {
+                position = DictOptVector3(node, "translation", Vector3.zero);
+                rotation = DictOptQuaternion(node, "rotation", Quaternion.identity);
+                scale = DictOptVector3(node, "scale", Vector3.one);
+            }
+
             children = new int[0];
 
             if (node.TryGetValue("children", TokenType.DataList, out DataToken childrenToken))
@@ -1141,15 +1235,15 @@ namespace VoyageVoyage
                 {
                     mat.SetFloat("_Metallic", (float)(double)metallicToken);
                 }
-                if (pbrInfo.TryGetValue("roughnessFactor", TokenType.Double,  out DataToken roughnessToken))
-                {
-                    mat.SetFloat("_Glossiness", 1.0f - ((float)(double)roughnessToken));
-                }
+
+
 
                 Texture2D metallicRoughnessTexture = MaterialInfoGetTextureIfAvailable(pbrInfo, "metallicRoughnessTexture", out DataDictionary metalRoughTexInfo);
                 if (metallicRoughnessTexture != null) mat.SetTexture("_MetallicGlossMap", metallicRoughnessTexture);
 
-                
+                float roughness = DictOptFloat(pbrInfo, "roughnessFactor", 1f);
+                mat.SetFloat("_Glossiness", 1- roughness);
+                mat.SetFloat("_GlossMapScale", 1 - roughness);
             }
 
             if (materialInfo.TryGetValue("emissiveFactor", TokenType.DataList, out DataToken emissionColorToken))
@@ -1259,6 +1353,9 @@ namespace VoyageVoyage
                     break;
                 case "DXT5":
                     textureFormat = TextureFormat.DXT5;
+                    break;
+                case "BC7":
+                    textureFormat = TextureFormat.BC7;
                     break;
                 default:
                     ReportError("ParseImage", "Unknown texture format");

@@ -53,6 +53,9 @@ MeshRenderer:
   m_RendererPriority: 0
   m_Materials:
   - {fileID: 2100000, guid: ad181e8e98ecf9c47be76c1e92da09ca, type: 2}
+  - {fileID: 2100000, guid: 5d2c041fbe5ae07478f87f59326ddb91, type: 2}
+  - {fileID: 2100000, guid: 7db0443fbd2f40d4abf7d411d7cf35ff, type: 2}
+  - {fileID: 2100000, guid: cef65058e22562748994b71abdf1e473, type: 2}
   m_StaticBatchInfo:
     firstSubMesh: 0
     subMeshCount: 0
@@ -388,6 +391,12 @@ PrefabInstance:
       propertyPath: _udonSharpBackingUdonBehaviour
       value: 
       objectReference: {fileID: 2166699157192932437}
+    - target: {fileID: 1930098000493274546, guid: aa5ab191909298f4d996a7597ba93961,
+        type: 3}
+      propertyPath: serializationData.Prefab
+      value: 
+      objectReference: {fileID: 1930098000493274546, guid: aa5ab191909298f4d996a7597ba93961,
+        type: 3}
     - target: {fileID: 1986950292712614718, guid: aa5ab191909298f4d996a7597ba93961,
         type: 3}
       propertyPath: behaviour
