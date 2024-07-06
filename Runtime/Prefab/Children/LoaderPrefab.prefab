@@ -147,9 +147,14 @@ MonoBehaviour:
     type: 3}
   temporaryRenderer: {fileID: 7910605014511532007}
   baseMaterial: {fileID: 2100000, guid: 53edb77c3b172394a9bd0a42358a3026, type: 2}
+  unlitShader: {fileID: 10752, guid: 0000000000000000f000000000000000, type: 0}
+  unlitShaderCutout: {fileID: 10751, guid: 0000000000000000f000000000000000, type: 0}
+  unlitShaderTransparent: {fileID: 10750, guid: 0000000000000000f000000000000000,
+    type: 0}
   stateReceivers:
   - {fileID: 0}
   - {fileID: 0}
+  m_images: []
 --- !u!114 &2792029052745083663
 MonoBehaviour:
   m_ObjectHideFlags: 0

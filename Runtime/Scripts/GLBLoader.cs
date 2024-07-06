@@ -1,7 +1,9 @@
 ﻿
 using System;
+using System.Runtime.InteropServices.WindowsRuntime;
 using UdonSharp;
 using UnityEngine;
+using UnityEngine.UIElements;
 using VRC.SDK3.Data;
 using VRC.SDK3.StringLoading;
 using VRC.SDKBase;
@@ -20,6 +22,9 @@ namespace VoyageVoyage
 
         public MeshRenderer temporaryRenderer;
         public Material baseMaterial;
+        public Shader unlitShader;
+        public Shader unlitShaderCutout;
+        public Shader unlitShaderTransparent;
         public UdonSharpBehaviour[] stateReceivers;
 
         DataDictionary m_accessorTypesInfo;
@@ -42,6 +47,22 @@ namespace VoyageVoyage
         int glbDataStart = 0;
         bool finished = false;
         float limit = 0;
+
+        const int accessorFieldBufferParsed = 0;
+        const int accessorFieldBufferReference = 1;
+        const int accessorFieldBufferBufferView = 2;
+        const int accessorFieldBufferComponentType = 3;
+        const int accessorFieldBufferOffset = 4;
+        const int accessorFieldBufferCount = 5;
+        const int accessorFieldBufferType = 6;
+        const int accessorFieldsCount = 7;
+
+        const int bufferViewFieldBufferIndex = 0;
+        const int bufferViewFieldOffset = 1;
+        const int bufferViewFieldSize = 2;
+        const int bufferViewFieldStride = 3;
+        const int bufferViewFieldTarget = 4;
+        const int bufferViewFieldsCount = 5;
 
         void ResetState()
         {
@@ -290,6 +311,92 @@ namespace VoyageVoyage
             int nFloats = nBytes / 4;
             float[] ret = new float[nFloats];
             System.Buffer.BlockCopy(glbData, offset, ret, 0, nBytes);
+            return ret;
+        }
+
+        float[] GetStridedFloats(byte[] glbData, int offset, int readSizeInBytes, int strideInBytes)
+        {
+            /* This is one of the worse scenario.
+             * If you do this in your GLB file, FUCK YOU !
+             */
+            int nFloats = readSizeInBytes / 4;
+            float[] ret = new float[nFloats];
+            for (int f = 0, cursor = offset; f < nFloats; f++, cursor += strideInBytes)
+            {
+                ret[f] = System.BitConverter.ToSingle(glbData, cursor);
+            }
+            return ret;
+        }
+
+        int[] GetStridedInts(byte[] glbData, int offset, int readSizeInBytes, int strideInBytes)
+        {
+            int nUints = readSizeInBytes / 4;
+            int[] ret = new int[nUints];
+            for (int u = 0, cursor = offset; u < nUints; u++, cursor += strideInBytes)
+            {
+                ret[u] = System.BitConverter.ToInt32(glbData, cursor);
+            }
+            return ret;
+        }
+
+        ushort[] GetStridedUshorts(byte[] glbData, int offset, int readSizeInBytes, int strideInBytes)
+        {
+            int nUshorts = readSizeInBytes / 2;
+            ushort[] ret = new ushort[nUshorts];
+            for (int u = 0, cursor = offset; u < nUshorts; u++, cursor += strideInBytes)
+            {
+                ret[u] = System.BitConverter.ToUInt16(glbData, cursor);
+            }
+            return ret;
+        }
+
+        Matrix4x4[] FloatsToMatrix4x4(float[] floats, int nFloats, int byteStride)
+        {
+            /* The default 'stride' is 16.
+             * 
+             * Meaning that :
+             * - We start at some specific point
+             * - We read 16 floats from there
+             *   and fill a Matrix4x4 with it
+             * - Then from this point, we jump 16 floats forward
+             * 
+             * Which is just a complicated way of saying,
+             * "the data are packed and just read everything in one time".
+             * 
+             * However, there MIGHT be a stride SUPERIOR to 16 floats.
+             * In which case, we round it to a 'float' and consider it
+             * when jumping from one point to the next one.
+             */
+            int floatStride = 16;
+            if (byteStride > 16*4)
+            {
+                floatStride = byteStride / 4;
+            }
+            int nMatrices = nFloats / 16;
+
+            Matrix4x4[] ret = new Matrix4x4[nMatrices];
+            for (int m = 0, f = 0; m < nMatrices; m++, f += floatStride)
+            {
+                ret[m][0]  = floats[f + 0];
+                ret[m][1]  = floats[f + 1];
+                ret[m][2]  = floats[f + 2];
+                ret[m][3]  = floats[f + 3];
+
+                ret[m][4]  = floats[f + 4];
+                ret[m][5]  = floats[f + 5];
+                ret[m][6]  = floats[f + 6];
+                ret[m][7]  = floats[f + 7];
+
+                ret[m][8]  = floats[f + 8];
+                ret[m][9]  = floats[f + 9];
+                ret[m][10] = floats[f + 10];
+                ret[m][11] = floats[f + 11];
+
+                ret[m][12] = floats[f + 12];
+                ret[m][13] = floats[f + 13];
+                ret[m][14] = floats[f + 14];
+                ret[m][15] = floats[f + 15];
+            }
             return ret;
         }
 
@@ -591,29 +698,75 @@ namespace VoyageVoyage
         }
 
 
-        const int accessorFieldBufferParsed = 0;
-        const int accessorFieldBufferReference = 1;
-        const int accessorFieldBufferBufferView = 2;
-        const int accessorFieldBufferComponentType = 3;
-        const int accessorFieldBufferOffset = 4;
-        const int accessorFieldBufferCount = 5;
-        const int accessorFieldBufferType = 6;
-        const int accessorFieldsCount = 7;
+        object GetFloatBuffer(int offset, int bufferSize, int readSize, int stride, string accessorType)
+        {
+            if (accessorType == "SCALAR" && stride > 4)
+            {
+                return GetStridedFloats(glb, offset, readSize, stride);
+            }
+            object buffer = GetFloats(glb, offset, bufferSize);
+            int nFloats = readSize / 4;
+            switch (accessorType)
+            {
+                case "VEC2":
+                    buffer = FloatsToVector2((float[])buffer, nFloats, stride);
+                    break;
 
-        const int bufferViewFieldBufferIndex = 0;
-        const int bufferViewFieldOffset = 1;
-        const int bufferViewFieldSize = 2;
-        const int bufferViewFieldStride = 3;
-        const int bufferViewFieldTarget = 4;
-        const int bufferViewFieldsCount = 5;
+                case "VEC3":
+                    buffer = FloatsToVector3((float[])buffer, nFloats, stride);
+                    break;
 
-        /* TODO
-         * Parse bufferViews and only return their info
-         * Parse the buffers when accessed
-         * Check the result with PlayCanvas GLTF
-         */
+                case "MAT4":
+                    buffer = FloatsToMatrix4x4((float[])buffer, nFloats, stride);
+                    break;
+            }
+            return buffer;
+        }
 
-        object ParseAccessorBuffer(object[] accessor, bool rescale, Vector3 scaleFactor, bool alignOn3)
+        object GetIntsBuffer(int offset, int bufferSize, int readSize, int stride, string accessorType)
+        {
+            if (accessorType == "SCALAR" && stride > 4)
+            {
+                return GetStridedInts(glb, offset, bufferSize, stride);
+            }
+
+            return GetUints(glb, offset, readSize);
+        }
+
+        object GetUshortBuffer(int offset, int bufferSize, int readSize, int stride, string accessorType)
+        {
+            if (accessorType == "SCALAR" && stride > 2)
+            {
+                return GetStridedUshorts(glb, offset, bufferSize, stride); 
+            }
+
+            return GetUshorts(glb, offset, readSize);
+        }
+
+        const int rescaleOptionIndex = 0;
+        const int scaleFactorOptionIndex = 1;
+        const int alignOn3OptionIndex = 2;
+        const int invertTrianglesOptionIndex = 3;
+        const int nOptionIndices = 4;
+
+        void ResetAccessorBufferParseOptions(object[] options)
+        {
+            options[rescaleOptionIndex] = false;
+            options[scaleFactorOptionIndex] = Vector3.one;
+            options[alignOn3OptionIndex] = false;
+            options[invertTrianglesOptionIndex] = false;
+        }
+
+        object[] AccessorBufferParseOptions()
+        {
+            object[] options = new object[nOptionIndices];
+
+            ResetAccessorBufferParseOptions(options);
+
+            return options;
+        }
+
+        object ParseAccessorBuffer(object[] accessor, object[] options)
         {
             int bufferView = (int)accessor[accessorFieldBufferBufferView];
             if ((bufferView < 0) | (bufferView >= m_bufferViews.Length))
@@ -643,12 +796,14 @@ namespace VoyageVoyage
             }
 
             int nComponents = (int)m_accessorTypesInfo[accessorType];
-            // FIXME : Hack to get around non multiple of 3 triangles... Like... If you do this, fuck you really...
+            // FIXME : Hack to get around accessors defining a non multiple of 3
+            // when trying to get triangles points...
+            // Like... If you do this, fuck you really...
+            // A triangle is 3 POINTS. Not 2, Not 1. 3.
+            bool alignOn3 = (bool)options[invertTrianglesOptionIndex];
             if (alignOn3)
             {
-                //ReportInfo("ParseAccessorBuffer", $"Number of accessorCount before : {accessorCount}");
                 accessorCount = (accessorCount / 3) * 3;
-                //ReportInfo("ParseAccessorBuffer", $"Number of accessorCount after : {accessorCount}");
             }
             
             int componentsSize = (int)m_accessorTypesInfo[accessorComponentType];
@@ -664,32 +819,57 @@ namespace VoyageVoyage
             int actualStride = (byteStride == 0) ? arrayElementSize : byteStride;
 
             object buffer;
+
+            /* There's two problems to solve here :
+             * - Get the raw data
+             * - Store it into the proper Array type, while respecting the Stride.
+             * 
+             * The solution used here consist in reading the WHOLE buffer and then
+             * reading the "actual size in bytes" while respecting the stride, when
+             * generating the Vec2/Vec3 arrays.
+             * 
+             * The whole idea is that, if data are packed together, then we'll
+             * be basically reading the same amount of data generally.
+             * 
+             * However, if there's some weird stride, we'll still have the whole
+             * buffer available to read when making the array.
+             * 
+             * The main issue is that we can easily overshoot and store too much
+             * data for scalar data, but I'll take a bit more memory in order
+             * to play 'safe' we'll say.
+             */
+
+            bool invertTriangles = (bool)options[invertTrianglesOptionIndex];
+
             switch (accessorComponentType)
             {
                 case 5126:
-                    // Strange decision but we'll go with bufferSize instead of readSizeInBytes
-                    buffer = GetFloats(glb, actualOffset, bufferSize); // GetFloats(glb, actualOffset, readSizeInBytes);
-
-                    // For performances reasons, let's assume that the stride is a multiple of 4
-                    // Still, Let's hope that I won't have to get the floats ONE by ONE due to some stupid byteStride
-
-                    
-                    buffer = (accessorType == "VEC3") ? FloatsToVector3((float[])buffer, readSizeInBytes/4, byteStride) : buffer;
-                    buffer = (accessorType == "VEC2") ? FloatsToVector2((float[])buffer, readSizeInBytes/4, byteStride) : buffer;
+                    buffer = GetFloatBuffer(actualOffset, bufferSize, readSizeInBytes, actualStride, accessorType);
                     break;
                 case 5123:
-                    buffer = InvertTriangles(GetUshorts(glb, actualOffset, readSizeInBytes));
+                    buffer = GetUshortBuffer(actualOffset, bufferSize, readSizeInBytes, actualStride, accessorType);
+                    if (invertTriangles)
+                    {
+                        buffer = InvertTriangles((ushort[])buffer);
+                    }
                     break;
                 case 5125:
-                    buffer = InvertTriangles(GetUints(glb, actualOffset, readSizeInBytes));
+
+                    buffer = GetIntsBuffer(actualOffset, bufferSize, readSizeInBytes, actualStride, accessorType);
+                    if (invertTriangles)
+                    {
+                        buffer = InvertTriangles((int[])buffer);
+                    }
                     break;
                 default:
                     ReportError("ParseAccessorBuffer", $"Unhandled Component type {accessorComponentType} !");
                     return null;
             }
 
+            bool rescale = (bool)options[rescaleOptionIndex];
             if (rescale)
             {
+                Vector3 scaleFactor = (Vector3)options[scaleFactorOptionIndex];
                 RescaleVector3((Vector3[])buffer, scaleFactor);
             }
 
@@ -698,7 +878,7 @@ namespace VoyageVoyage
             return buffer;
         }
 
-        object GetAccessorBuffer(int accessorIndex, bool rescale, Vector3 scaleFactor, bool alignOn3)
+        object GetAccessorBuffer(int accessorIndex, object[] options)
         {
             if (accessorIndex < 0)
             {
@@ -730,7 +910,7 @@ namespace VoyageVoyage
                 return accessor[accessorFieldBufferReference];
             }
 
-            return ParseAccessorBuffer(accessor, rescale, scaleFactor, alignOn3);
+            return ParseAccessorBuffer(accessor, options);
         }
 
         System.Type vector3Array = typeof(Vector3[]);
@@ -747,14 +927,21 @@ namespace VoyageVoyage
             int uvsAccessorIndex = meshInfo[startOffset + meshInfoUvsAccessorIndex];
             int indicesAccessorIndex = meshInfo[startOffset + meshInfoIndicesAccessorIndex];
 
-            object positionsBuffer = GetAccessorBuffer(positionsAccessorIndex, true, new Vector3(-1,1,1), false);
+            object[] parseOptions = AccessorBufferParseOptions();
+            parseOptions[rescaleOptionIndex] = true;
+            parseOptions[scaleFactorOptionIndex] = new Vector3(-1, 1, 1);
+
+            object positionsBuffer = GetAccessorBuffer(positionsAccessorIndex, parseOptions);
             if (positionsBuffer == null)
             {
                 ReportError("LoadMeshFrom", "Invalid Positions Accessor");
                 return m;
             }
 
-            object indicesBuffer = GetAccessorBuffer(indicesAccessorIndex, false, Vector3.zero, true);
+            ResetAccessorBufferParseOptions(parseOptions);
+            parseOptions[invertTrianglesOptionIndex] = true;
+
+            object indicesBuffer = GetAccessorBuffer(indicesAccessorIndex, parseOptions);
             if (indicesBuffer == null)
             {
                 ReportError("LoadMeshFrom", "Invalid Indices Accessor");
@@ -770,13 +957,17 @@ namespace VoyageVoyage
 
             m.vertices = (Vector3[])positionsBuffer;
 
-            object normalsBuffer = GetAccessorBuffer(normalsAccessorIndex, true, new Vector3(-1, 1, 1), false);
+            ResetAccessorBufferParseOptions(parseOptions);
+            parseOptions[rescaleOptionIndex] = true;
+            parseOptions[scaleFactorOptionIndex] = new Vector3(-1, 1, 1);
+            object normalsBuffer = GetAccessorBuffer(normalsAccessorIndex, parseOptions);
             if (normalsBuffer != null && normalsBuffer.GetType() == vector3Array)
             {
                 m.normals = (Vector3[])normalsBuffer;
             }
-            
-            object uvsBuffer = GetAccessorBuffer(uvsAccessorIndex, false, Vector3.zero, false);
+
+            ResetAccessorBufferParseOptions(parseOptions);
+            object uvsBuffer = GetAccessorBuffer(uvsAccessorIndex, parseOptions);
 
             //ReportInfo("LoadMeshFrom", "Got an accessor !");
             if (uvsBuffer != null && uvsBuffer.GetType() == vector2Array)
@@ -1013,7 +1204,7 @@ namespace VoyageVoyage
                 }
                 else
                 {
-                    sharedMaterials[sharedMatIndex] = NewMaterial();
+                    sharedMaterials[sharedMatIndex] = NewMaterial(baseMaterial);
                 }
             }
             renderer.sharedMaterials = sharedMaterials;
@@ -1130,13 +1321,13 @@ namespace VoyageVoyage
 
         }
 
-        Material NewMaterial()
+        Material NewMaterial(Material templateMaterial)
         {
             /* This actually Instantiate a new material.
              * For some reason, you can't do Instantiate(material)
              * with Udon
              */
-            temporaryRenderer.material = baseMaterial;
+            temporaryRenderer.material = templateMaterial;
 
             return temporaryRenderer.material;
         }
@@ -1191,7 +1382,18 @@ namespace VoyageVoyage
 
         Material CreateMaterialFrom(DataDictionary materialInfo)
         {
-            Material mat = NewMaterial();
+            Material mat = NewMaterial(baseMaterial);
+            bool isUnlit = false;
+            if (materialInfo.TryGetValue("extensions", TokenType.DataDictionary, out DataToken extensionsDictToken))
+            {
+                DataDictionary extensionsDict = (DataDictionary)extensionsDictToken;
+                isUnlit = extensionsDict.ContainsKey("KHR_materials_unlit");
+                if (isUnlit)
+                {
+                    mat.shader = unlitShader;
+                }
+            }
+            mat = (mat == null) ? NewMaterial(baseMaterial) : mat;
 
             mat.name = DictOptString(materialInfo, "name", mat.name);
 
@@ -1208,8 +1410,22 @@ namespace VoyageVoyage
             /* FIXME Handle different Alpha modes correctly ! */
             if (alphaMode != "")
             {
-                if (alphaMode == "BLEND") MaterialSetAsFade(mat);
-                else if (alphaMode == "MASK") MaterialSetAsCutout(mat, DictOptFloat(materialInfo, "alphaCutoff", 0.5f));
+                if (alphaMode == "BLEND")
+                {
+                    if (isUnlit)
+                    {
+                        mat.shader = unlitShaderTransparent;
+                    }
+                    MaterialSetAsFade(mat);
+                }
+                else if (alphaMode == "MASK")
+                {
+                    if (isUnlit)
+                    {
+                        mat.shader = unlitShaderCutout;
+                    }
+                    MaterialSetAsCutout(mat, DictOptFloat(materialInfo, "alphaCutoff", 0.5f));
+                }
             }
 
             if (materialInfo.TryGetValue("pbrMetallicRoughness", TokenType.DataDictionary, out DataToken pbrToken))
