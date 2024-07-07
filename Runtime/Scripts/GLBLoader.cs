@@ -22,6 +22,7 @@ namespace VoyageVoyage
 
         public MeshRenderer temporaryRenderer;
         public Material baseMaterial;
+        public Material unlitMaterialTemplate;
         public Shader unlitShader;
         public Shader unlitShaderCutout;
         public Shader unlitShaderTransparent;
@@ -302,6 +303,7 @@ namespace VoyageVoyage
         {
             int nUints = nBytes / 4;
             int[] ret = new int[nUints];
+            ReportInfo("GetUints", $"{offset} + {nBytes} < {glbData.Length}");
             System.Buffer.BlockCopy(glbData, offset, ret, 0, nBytes);
             return ret;
         }
@@ -310,6 +312,7 @@ namespace VoyageVoyage
         {
             int nFloats = nBytes / 4;
             float[] ret = new float[nFloats];
+            ReportInfo("GetFloats", $"{offset} + {nBytes} < {glbData.Length}");
             System.Buffer.BlockCopy(glbData, offset, ret, 0, nBytes);
             return ret;
         }
@@ -704,6 +707,7 @@ namespace VoyageVoyage
             {
                 return GetStridedFloats(glb, offset, readSize, stride);
             }
+            ReportInfo("GetFloatBuffer", $"Actual {offset} + {bufferSize} < {glb.Length}");
             object buffer = GetFloats(glb, offset, bufferSize);
             int nFloats = readSize / 4;
             switch (accessorType)
@@ -812,6 +816,7 @@ namespace VoyageVoyage
             
 
             int actualOffset = glbDataStart + bufferOffset + accessorOffset;
+            int remainingSize = bufferSize - accessorOffset;
             int readSizeInBytes = arrayElementSize * accessorCount;
             if (readSizeInBytes > bufferSize) readSizeInBytes = bufferSize;
 
@@ -844,10 +849,10 @@ namespace VoyageVoyage
             switch (accessorComponentType)
             {
                 case 5126:
-                    buffer = GetFloatBuffer(actualOffset, bufferSize, readSizeInBytes, actualStride, accessorType);
+                    buffer = GetFloatBuffer(actualOffset, remainingSize, readSizeInBytes, actualStride, accessorType);
                     break;
                 case 5123:
-                    buffer = GetUshortBuffer(actualOffset, bufferSize, readSizeInBytes, actualStride, accessorType);
+                    buffer = GetUshortBuffer(actualOffset, remainingSize, readSizeInBytes, actualStride, accessorType);
                     if (invertTriangles)
                     {
                         buffer = InvertTriangles((ushort[])buffer);
@@ -855,7 +860,7 @@ namespace VoyageVoyage
                     break;
                 case 5125:
 
-                    buffer = GetIntsBuffer(actualOffset, bufferSize, readSizeInBytes, actualStride, accessorType);
+                    buffer = GetIntsBuffer(actualOffset, remainingSize, readSizeInBytes, actualStride, accessorType);
                     if (invertTriangles)
                     {
                         buffer = InvertTriangles((int[])buffer);
@@ -1388,12 +1393,14 @@ namespace VoyageVoyage
             {
                 DataDictionary extensionsDict = (DataDictionary)extensionsDictToken;
                 isUnlit = extensionsDict.ContainsKey("KHR_materials_unlit");
-                if (isUnlit)
-                {
-                    mat.shader = unlitShader;
-                }
             }
-            mat = (mat == null) ? NewMaterial(baseMaterial) : mat;
+            mat = (!isUnlit ? NewMaterial(baseMaterial) : NewMaterial(unlitMaterialTemplate));
+            /* Trying Standard again */
+            if (isUnlit)
+            {
+                mat.EnableKeyword("_EMISSION");
+                mat.globalIlluminationFlags = MaterialGlobalIlluminationFlags.None;
+            }
 
             mat.name = DictOptString(materialInfo, "name", mat.name);
 
@@ -1412,18 +1419,10 @@ namespace VoyageVoyage
             {
                 if (alphaMode == "BLEND")
                 {
-                    if (isUnlit)
-                    {
-                        mat.shader = unlitShaderTransparent;
-                    }
                     MaterialSetAsFade(mat);
                 }
                 else if (alphaMode == "MASK")
                 {
-                    if (isUnlit)
-                    {
-                        mat.shader = unlitShaderCutout;
-                    }
                     MaterialSetAsCutout(mat, DictOptFloat(materialInfo, "alphaCutoff", 0.5f));
                 }
             }
@@ -1432,7 +1431,11 @@ namespace VoyageVoyage
             {
                 DataDictionary pbrInfo = (DataDictionary)pbrToken;
                 Texture2D albedoTexture = MaterialInfoGetTextureIfAvailable(pbrInfo, "baseColorTexture", out DataDictionary baseColorTexInfo);
-                if (albedoTexture != null) mat.SetTexture("_MainTex", albedoTexture);
+                if (albedoTexture != null)
+                {
+                    string textureUnit = (!isUnlit ? "_MainTex" : "_EmissionMap");
+                    mat.SetTexture(textureUnit, albedoTexture);
+                }
 
                 if (pbrInfo.TryGetValue("baseColorFactor", TokenType.DataList, out DataToken colorToken))
                 {
@@ -1440,7 +1443,16 @@ namespace VoyageVoyage
                     if (colorInfo.Count == 4 && IsListComponentType(colorInfo, TokenType.Double))
                     {
                         Color color = DataListToColor(colorInfo);
-                        mat.color = color;
+                        if (!isUnlit)
+                        {
+                            mat.color = color;
+                        }
+                        else
+                        {
+                            mat.SetColor("_EmissionColor", color);
+                        }
+                        
+
                         if (color.a < 1)
                         {
                             MaterialSetAsFade(mat);
