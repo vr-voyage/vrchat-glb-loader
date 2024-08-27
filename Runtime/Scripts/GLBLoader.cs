@@ -23,16 +23,20 @@ namespace VoyageVoyage
         public MeshRenderer temporaryRenderer;
         public Material baseMaterial;
         public Material unlitMaterialTemplate;
-        public Shader unlitShader;
-        public Shader unlitShaderCutout;
-        public Shader unlitShaderTransparent;
         public UdonSharpBehaviour[] stateReceivers;
+
+        public Texture2D[] dxt5pool;
+        int nextDxt5 = 0;
+        public Texture2D[] bgra32pool;
+        int nextBgra32 = 0;
+        public Texture2D[] bc7pool;
+        int nextBc7 = 0;
 
         DataDictionary m_accessorTypesInfo;
 
         object[] m_bufferViews;
         object[] m_accessors;
-        Material[] m_materials;
+        public Material[] m_materials;
         object[] m_meshesInfo;
         public Texture2D[] m_images;
         GameObject[] m_nodes;
@@ -187,6 +191,13 @@ namespace VoyageVoyage
             //ParseGLB();
         }
 
+        public void StartParsingGlb(byte[] glbData)
+        {
+            Clear();
+            glb = glbData;
+            StartParsing();
+        }
+
         void Clear()
         {
             NotifyState("SceneCleared");
@@ -218,9 +229,7 @@ namespace VoyageVoyage
         public override void OnStringLoadSuccess(IVRCStringDownload result)
         {
             //ReportInfo("OnStringLoadSuccess", $"Time : {Time.realtimeSinceStartup}");
-            Clear();
-            glb = result.ResultBytes;
-            StartParsing();
+            StartParsingGlb(result.ResultBytes);
         }
 
         public override void OnStringLoadError(IVRCStringDownload result)
@@ -1387,19 +1396,23 @@ namespace VoyageVoyage
 
         Material CreateMaterialFrom(DataDictionary materialInfo)
         {
-            Material mat = NewMaterial(baseMaterial);
             bool isUnlit = false;
+            string textureUnit = "_MainTex";
+            string colorUnit = "_Color";
             if (materialInfo.TryGetValue("extensions", TokenType.DataDictionary, out DataToken extensionsDictToken))
             {
                 DataDictionary extensionsDict = (DataDictionary)extensionsDictToken;
                 isUnlit = extensionsDict.ContainsKey("KHR_materials_unlit");
             }
-            mat = (!isUnlit ? NewMaterial(baseMaterial) : NewMaterial(unlitMaterialTemplate));
+            Material mat = (!isUnlit ? NewMaterial(baseMaterial) : NewMaterial(unlitMaterialTemplate));
             /* Trying Standard again */
             if (isUnlit)
             {
                 mat.EnableKeyword("_EMISSION");
                 mat.globalIlluminationFlags = MaterialGlobalIlluminationFlags.None;
+                textureUnit = "_EmissionMap";
+                colorUnit = "_EmissionColor";
+                mat.SetColor(colorUnit, Color.white);
             }
 
             mat.name = DictOptString(materialInfo, "name", mat.name);
@@ -1433,7 +1446,6 @@ namespace VoyageVoyage
                 Texture2D albedoTexture = MaterialInfoGetTextureIfAvailable(pbrInfo, "baseColorTexture", out DataDictionary baseColorTexInfo);
                 if (albedoTexture != null)
                 {
-                    string textureUnit = (!isUnlit ? "_MainTex" : "_EmissionMap");
                     mat.SetTexture(textureUnit, albedoTexture);
                 }
 
@@ -1443,16 +1455,8 @@ namespace VoyageVoyage
                     if (colorInfo.Count == 4 && IsListComponentType(colorInfo, TokenType.Double))
                     {
                         Color color = DataListToColor(colorInfo);
-                        if (!isUnlit)
-                        {
-                            mat.color = color;
-                        }
-                        else
-                        {
-                            mat.SetColor("_EmissionColor", color);
-                        }
+                        mat.SetColor(colorUnit, color);
                         
-
                         if (color.a < 1)
                         {
                             MaterialSetAsFade(mat);
@@ -1542,7 +1546,7 @@ namespace VoyageVoyage
         const int sizeIndex = 1;
         string voyageExtensionName = "EXT_voyage_exporter";
 
-        Texture2D ParseImage(DataDictionary imageInfo, byte[] glb)
+        Texture2D ParseImage(DataDictionary imageInfo, byte[] glb, int i)
         {
             bool checkFields = CheckFields(imageInfo,
                 "bufferView", TokenType.Double,
@@ -1573,17 +1577,20 @@ namespace VoyageVoyage
                 return null;
             }
 
-            TextureFormat textureFormat;
+            Texture2D tex;
             switch(formatInfo)
             {
                 case "BGRA32":
-                    textureFormat = TextureFormat.BGRA32;
+                    tex = bgra32pool[nextBgra32];
+                    nextBgra32++;
                     break;
                 case "DXT5":
-                    textureFormat = TextureFormat.DXT5;
+                    tex = dxt5pool[nextDxt5];
+                    nextDxt5++;
                     break;
                 case "BC7":
-                    textureFormat = TextureFormat.BC7;
+                    tex = bc7pool[nextBc7];
+                    nextBc7++;
                     break;
                 default:
                     ReportError("ParseImage", "Unknown texture format");
@@ -1604,8 +1611,7 @@ namespace VoyageVoyage
             byte[] textureData = new byte[size];
             Buffer.BlockCopy(glb, offset, textureData, 0, size);
 
-
-            Texture2D tex = new Texture2D(width, height, textureFormat, false);
+            tex.Reinitialize(width, height);
             tex.name = DictOptString(imageInfo, "name", "Anonymous");
             tex.LoadRawTextureData(textureData);
             tex.Apply(false, false);
@@ -1645,7 +1651,7 @@ namespace VoyageVoyage
                 }
                 DataToken imageInfoToken = imagesList[i];
                 if (imageInfoToken.TokenType != TokenType.DataDictionary) continue;
-                textures[i] = ParseImage((DataDictionary)imageInfoToken, glb);
+                textures[i] = ParseImage((DataDictionary)imageInfoToken, glb, i);
 
             }
             return sectionComplete;
@@ -1808,6 +1814,7 @@ namespace VoyageVoyage
             switch (currentState)
             {
                 case 0:
+                    NotifyState("SceneLoading");
                     currentIndex = ParseMainData(currentIndex);
                     break;
                 case 1:
