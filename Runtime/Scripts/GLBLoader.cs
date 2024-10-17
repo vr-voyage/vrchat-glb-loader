@@ -25,13 +25,6 @@ namespace VoyageVoyage
         public Material unlitMaterialTemplate;
         public UdonSharpBehaviour[] stateReceivers;
 
-        public Texture2D[] dxt5pool;
-        int nextDxt5 = 0;
-        public Texture2D[] bgra32pool;
-        int nextBgra32 = 0;
-        public Texture2D[] bc7pool;
-        int nextBc7 = 0;
-
         DataDictionary m_accessorTypesInfo;
 
         object[] m_bufferViews;
@@ -164,6 +157,22 @@ namespace VoyageVoyage
             return retValue;
         }
 
+        Color DictOptColor(DataDictionary dict, string fieldName, Color defaultColor)
+        {
+            Color retValue = defaultColor;
+
+            if (dict.TryGetValue(fieldName, TokenType.DataList, out DataToken dataListToken))
+            {
+                DataList list = (DataList)dataListToken;
+                if (list.Count >= 4 && IsListComponentType(list, TokenType.Double))
+                {
+                    retValue = DataListToColor(list);
+                }
+            }
+
+            return retValue;
+        }
+
         public float IsAlive(float retValue)
         {
             return retValue;
@@ -186,7 +195,7 @@ namespace VoyageVoyage
         {
 
             currentState = 0;
-            enabled = true;
+            this.enabled = true;
             //ReportInfo("StartParsing", $"Starting at {Time.realtimeSinceStartup}");
             //ParseGLB();
         }
@@ -198,7 +207,7 @@ namespace VoyageVoyage
             StartParsing();
         }
 
-        void Clear()
+        public void Clear()
         {
             NotifyState("SceneCleared");
             ResetState();
@@ -292,7 +301,6 @@ namespace VoyageVoyage
             {
                 string key = (string)fieldNamesAndTypes[i + 0];
                 TokenType type = (TokenType)fieldNamesAndTypes[i + 1];
-                ReportInfo("CheckFields", $"key is {key.GetType()}");
 
                 bool fieldIsOk = (dictionary.ContainsKey(key) && dictionary[key].TokenType == type);
                 allFielsAreOk &= fieldIsOk;
@@ -312,7 +320,6 @@ namespace VoyageVoyage
         {
             int nUints = nBytes / 4;
             int[] ret = new int[nUints];
-            ReportInfo("GetUints", $"{offset} + {nBytes} < {glbData.Length}");
             System.Buffer.BlockCopy(glbData, offset, ret, 0, nBytes);
             return ret;
         }
@@ -321,7 +328,6 @@ namespace VoyageVoyage
         {
             int nFloats = nBytes / 4;
             float[] ret = new float[nFloats];
-            ReportInfo("GetFloats", $"{offset} + {nBytes} < {glbData.Length}");
             System.Buffer.BlockCopy(glbData, offset, ret, 0, nBytes);
             return ret;
         }
@@ -716,7 +722,6 @@ namespace VoyageVoyage
             {
                 return GetStridedFloats(glb, offset, readSize, stride);
             }
-            ReportInfo("GetFloatBuffer", $"Actual {offset} + {bufferSize} < {glb.Length}");
             object buffer = GetFloats(glb, offset, bufferSize);
             int nFloats = readSize / 4;
             switch (accessorType)
@@ -829,7 +834,6 @@ namespace VoyageVoyage
             int readSizeInBytes = arrayElementSize * accessorCount;
             if (readSizeInBytes > bufferSize) readSizeInBytes = bufferSize;
 
-            ReportInfo("ParseAccessorBuffer", $"ByteStride : {byteStride}, natural stride : {arrayElementSize} - Read {readSizeInBytes} of {bufferSize}");
             int actualStride = (byteStride == 0) ? arrayElementSize : byteStride;
 
             object buffer;
@@ -993,7 +997,6 @@ namespace VoyageVoyage
             if (indicesBuffer.GetType() == ushortArray)
             {
                 ushort[] indices = (ushort[])indicesBuffer;
-                ReportInfo("LoadMeshFrom", $"Indices : {indices.Length} (% 3 ? {indices.Length % 3})");
                 m.SetIndices(indices, MeshTopology.Triangles, 0);
             }
             else if (indicesBuffer.GetType() == intArray)
@@ -1036,10 +1039,10 @@ namespace VoyageVoyage
                 instances[s] = instance;
             }
 
-            ReportInfo("LoadMesh", $"Indices : {indicesSum}");
             mesh.indexFormat = (indicesSum < 65535) ? UnityEngine.Rendering.IndexFormat.UInt16 : UnityEngine.Rendering.IndexFormat.UInt32;
 
             mesh.CombineMeshes(instances, false);
+            mesh.name = name;
             return true;
         }
 
@@ -1378,8 +1381,7 @@ namespace VoyageVoyage
 
             outTextureInfo = null;
             bool textureKeyExist = info.TryGetValue(textureKey, TokenType.DataDictionary, out DataToken textureInfoToken);
-            if (!textureKeyExist) return null;
-
+            if (!textureKeyExist) { return null; }
             outTextureInfo = (DataDictionary)textureInfoToken;
 
             DataDictionary textureInfo = (DataDictionary)textureInfoToken;
@@ -1449,29 +1451,21 @@ namespace VoyageVoyage
                     mat.SetTexture(textureUnit, albedoTexture);
                 }
 
-                if (pbrInfo.TryGetValue("baseColorFactor", TokenType.DataList, out DataToken colorToken))
-                {
-                    DataList colorInfo = (DataList)colorToken;
-                    if (colorInfo.Count == 4 && IsListComponentType(colorInfo, TokenType.Double))
-                    {
-                        Color color = DataListToColor(colorInfo);
-                        mat.SetColor(colorUnit, color);
-                        
-                        if (color.a < 1)
-                        {
-                            MaterialSetAsFade(mat);
-                        }
-                    }
-                }
-                if (pbrInfo.TryGetValue("metallic", TokenType.Double, out DataToken metallicToken))
-                {
-                    mat.SetFloat("_Metallic", (float)(double)metallicToken);
-                }
-
-
 
                 Texture2D metallicRoughnessTexture = MaterialInfoGetTextureIfAvailable(pbrInfo, "metallicRoughnessTexture", out DataDictionary metalRoughTexInfo);
                 if (metallicRoughnessTexture != null) mat.SetTexture("_MetallicGlossMap", metallicRoughnessTexture);
+
+                // https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html#reference-material-pbrmetallicroughness
+                // baseColorFactor : Default 1
+                // metallicFactor : Default 1
+                // roughnessFactor : Default 1
+
+                Color baseColor = DictOptColor(pbrInfo, "baseColorFactor", Color.white);
+                mat.SetColor(colorUnit, baseColor);
+                if (baseColor.a < 1) { MaterialSetAsFade(mat); }
+
+                float metallic = DictOptFloat(pbrInfo, "metallicFactor", 1.0f);
+                mat.SetFloat("_Metallic", metallic);
 
                 float roughness = DictOptFloat(pbrInfo, "roughnessFactor", 1f);
                 mat.SetFloat("_Glossiness", 1- roughness);
@@ -1493,7 +1487,11 @@ namespace VoyageVoyage
                 mat.SetTexture("_EmissionMap", emissionTexture);
             }
 
-            
+            Texture2D occlusionTexture = MaterialInfoGetTextureIfAvailable(materialInfo, "occlusionTexture", out DataDictionary occlusionTextureInfo);
+            if (occlusionTexture != null)
+            {
+                mat.SetTexture("_OcclusionMap", occlusionTexture);
+            }
 
             // Let's forget about Double side for the moment...
             return mat;
@@ -1546,15 +1544,38 @@ namespace VoyageVoyage
         const int sizeIndex = 1;
         string voyageExtensionName = "EXT_voyage_exporter";
 
-        Texture2D ParseImage(DataDictionary imageInfo, byte[] glb, int i)
+        Texture2D CreateInvalidTexture(string name)
         {
-            bool checkFields = CheckFields(imageInfo,
-                "bufferView", TokenType.Double,
-                "extensions", TokenType.DataDictionary);
+            Texture2D invalidTexture = new Texture2D(0, 0);
+            invalidTexture.name = name;
+            return invalidTexture;
+        }
+
+        Texture2D ParseImage(DataDictionary imageInfo, byte[] glb)
+        {
+
+            bool checkFields = CheckFields(imageInfo, "bufferView", TokenType.Double);
             if (!checkFields)
             {
-                ReportError("ParseImage", "No bufferView or extensions");
-                return null;
+                ReportError("ParseImage", "No bufferView associated with this texture !!");
+                return CreateInvalidTexture("NoBufferViewTexture");
+            }
+
+            string textureName = DictOptString(imageInfo, "name", "Anonymous texture");
+            
+            int bufferViewIndex = (int)(double)imageInfo["bufferView"];
+            if ((bufferViewIndex < 0) | (bufferViewIndex >= m_bufferViews.Length))
+            {
+                ReportError("ParseImage", $"Invalid buffer view {bufferViewIndex}");
+                return CreateInvalidTexture(textureName);
+            }
+            int[] bufferView = (int[])m_bufferViews[bufferViewIndex];
+
+            checkFields = CheckFields(imageInfo, "extensions", TokenType.DataDictionary);
+            if (!checkFields)
+            {
+                ReportError("ParseImage", "No extensions used. GLB Loader can't parse PNG/JPEG, so no data...");
+                return CreateInvalidTexture(textureName);
             }
 
             DataDictionary extension = (DataDictionary)imageInfo["extensions"];
@@ -1562,7 +1583,7 @@ namespace VoyageVoyage
             if (!hasExtension)
             {
                 ReportError("ParseImage", "Invalid type for extensions");
-                return null;
+                return CreateInvalidTexture(textureName);
             }
 
             DataDictionary voyageExtension = (DataDictionary)voyageExtensionToken;
@@ -1574,36 +1595,27 @@ namespace VoyageVoyage
             if ((width == -1) | (height == 1) | (formatInfo == ""))
             {
                 ReportError("ParseImage", "No width, height or format informations on Voyage's extension");
-                return null;
+                return CreateInvalidTexture(textureName);
             }
 
-            Texture2D tex;
-            switch(formatInfo)
+            TextureFormat textureFormat;
+            switch (formatInfo)
             {
                 case "BGRA32":
-                    tex = bgra32pool[nextBgra32];
-                    nextBgra32++;
+                    textureFormat = TextureFormat.BGRA32;
                     break;
                 case "DXT5":
-                    tex = dxt5pool[nextDxt5];
-                    nextDxt5++;
+                    textureFormat = TextureFormat.DXT5;
                     break;
                 case "BC7":
-                    tex = bc7pool[nextBc7];
-                    nextBc7++;
+                    textureFormat = TextureFormat.BC7;
                     break;
                 default:
                     ReportError("ParseImage", "Unknown texture format");
                     return null;
             }
 
-            int bufferViewIndex = (int)(double)imageInfo["bufferView"];
-            if ((bufferViewIndex < 0) | (bufferViewIndex >= m_bufferViews.Length))
-            {
-                ReportError("ParseImage", $"Invalid buffer view {bufferViewIndex}");
-                return null;
-            }
-            int[] bufferView = (int[])m_bufferViews[bufferViewIndex];
+            
 
             int offset = glbDataStart + bufferView[bufferViewFieldOffset];
             int size = bufferView[bufferViewFieldSize];
@@ -1611,7 +1623,7 @@ namespace VoyageVoyage
             byte[] textureData = new byte[size];
             Buffer.BlockCopy(glb, offset, textureData, 0, size);
 
-            tex.Reinitialize(width, height);
+            Texture2D tex = new Texture2D(width, height, textureFormat, false);
             tex.name = DictOptString(imageInfo, "name", "Anonymous");
             tex.LoadRawTextureData(textureData);
             tex.Apply(false, false);
@@ -1651,7 +1663,7 @@ namespace VoyageVoyage
                 }
                 DataToken imageInfoToken = imagesList[i];
                 if (imageInfoToken.TokenType != TokenType.DataDictionary) continue;
-                textures[i] = ParseImage((DataDictionary)imageInfoToken, glb, i);
+                textures[i] = ParseImage((DataDictionary)imageInfoToken, glb);
 
             }
             return sectionComplete;
@@ -1740,12 +1752,14 @@ namespace VoyageVoyage
         void ParseError()
         {
             NotifyState("ParseError");
+            ReportError("ParseError", "Parse error !");
             enabled = false;
         }
 
         void ParseComplete()
         {
             NotifyState("SceneLoaded");
+            ReportInfo("ParseComplete", "Parse complete !");
             enabled = false;
         }
 
@@ -1757,6 +1771,11 @@ namespace VoyageVoyage
             return Time.realtimeSinceStartup < limit;
         }
 
+        bool DidAnErrorHappened()
+        {
+            return currentIndex == errorValue;
+        }
+
         void TriggerNextIteration()
         {
             if (finished)
@@ -1765,8 +1784,10 @@ namespace VoyageVoyage
                 return;
             }
 
-            if (currentIndex == errorValue)
+            bool somethingWrongHappened = DidAnErrorHappened();
+            if (somethingWrongHappened)
             {
+                ReportError("TriggerNextIteration", "Something wrong happened ! Ending the parsing !");
                 ParseError();
                 return;
             }
@@ -1803,7 +1824,7 @@ namespace VoyageVoyage
 
         public void ParseGLB()
         {
-            
+
             if (!StillHaveTime())
             {
                 limit = Time.realtimeSinceStartup + Time.fixedDeltaTime / 2;
