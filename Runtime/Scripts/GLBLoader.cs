@@ -16,6 +16,7 @@ namespace VoyageVoyage
     {
         
         public VRCUrl userURL;
+        
 
         public Transform mainParent;
         public GameObject nodePrefab;
@@ -24,6 +25,8 @@ namespace VoyageVoyage
         public Material baseMaterial;
         public Material unlitMaterialTemplate;
         public UdonSharpBehaviour[] stateReceivers;
+
+        public GLTFAsset assetInfoObject;
 
         DataDictionary m_accessorTypesInfo;
 
@@ -1822,6 +1825,39 @@ namespace VoyageVoyage
             ParseGLB();
         }
 
+        int ParseAssetData(int _)
+        {
+            if (glbJson == null)
+            {
+                return errorValue;
+            }
+
+            bool gotValue = glbJson.TryGetValue("asset", TokenType.DataDictionary, out DataToken assetDictToken);
+            if (!gotValue) 
+            {
+                ReportError("ParseAssetData", "Required 'asset' property not found");
+                return errorValue;
+            }
+
+            DataDictionary assetInfo = (DataDictionary)assetDictToken;
+            gotValue = assetInfo.TryGetValue("version", TokenType.String, out DataToken versionToken);
+
+            if (!gotValue)
+            {
+                ReportError("ParseAssetData", "No 'asset'.'version' provided !");
+                return errorValue;
+            }
+
+            assetInfoObject.Clear();
+
+            assetInfoObject.version = (string)versionToken;
+            assetInfoObject.generator = DictOptString(assetInfo, "generator", "");
+            assetInfoObject.copyright = DictOptString(assetInfo, "copyright", "");
+            assetInfoObject.minVersion = DictOptString(assetInfo, "minVersion", "");
+
+            return sectionComplete;
+        }
+
         public void ParseGLB()
         {
 
@@ -1842,24 +1878,27 @@ namespace VoyageVoyage
                     currentIndex = ParseJsonData(currentIndex);
                     break;
                 case 2:
-                    currentIndex = ParseBufferViews(currentIndex);
+                    currentIndex = ParseAssetData(currentIndex);
                     break;
                 case 3:
-                    currentIndex = ParseAccessors(currentIndex);
+                    currentIndex = ParseBufferViews(currentIndex);
                     break;
                 case 4:
-                    currentIndex = ParseImages(currentIndex);
+                    currentIndex = ParseAccessors(currentIndex);
                     break;
                 case 5:
-                    currentIndex = ParseMaterials(currentIndex);
+                    currentIndex = ParseImages(currentIndex);
                     break;
                 case 6:
-                    currentIndex = ParseMeshes(currentIndex);
+                    currentIndex = ParseMaterials(currentIndex);
                     break;
                 case 7:
-                    currentIndex = SpawnNodes(currentIndex);
+                    currentIndex = ParseMeshes(currentIndex);
                     break;
                 case 8:
+                    currentIndex = SpawnNodes(currentIndex);
+                    break;
+                case 9:
                     currentIndex = SetupNodes(currentIndex);
                     break;
                 default:
