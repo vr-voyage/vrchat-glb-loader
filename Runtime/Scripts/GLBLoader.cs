@@ -27,6 +27,10 @@ namespace VoyageVoyage
         public UdonSharpBehaviour[] stateReceivers;
 
         public GLTFAsset assetInfoObject;
+        public int defaultScene;
+        public int nScenes;
+        public GameObject gltfScenePrefab;
+        public Transform scenesInfoRoot;
 
         DataDictionary m_accessorTypesInfo;
 
@@ -82,7 +86,10 @@ namespace VoyageVoyage
 
             finished = false;
             limit = 0;
-        }
+
+            defaultScene = -1;
+            nScenes = 0;
+    }
 
         string DictOptString(DataDictionary dict, string fieldName, string defaultValue)
         {
@@ -210,22 +217,32 @@ namespace VoyageVoyage
             StartParsing();
         }
 
+        void RemoveAllChildrenOf(Transform t)
+        {
+            if (t == null)
+            {
+                return;
+            }
+            Transform[] children = t.GetComponentsInChildren<Transform>();
+            int nChildren = children.Length;
+            for (int c = 0; c < nChildren; c++)
+            {
+                /* Because, in Unity, you're a child of yourself... */
+                if (children[c] != t)
+                {
+                    Destroy(children[c].gameObject);
+                }
+            }
+        }
+
         public void Clear()
         {
             NotifyState("SceneCleared");
             ResetState();
 
 
-            Transform[] children = mainParent.GetComponentsInChildren<Transform>();
-            int nChildren = children.Length;
-            for (int c = 0; c < nChildren; c++)
-            {
-                /* Because, in Unity, you're a child of yourself... */
-                if (children[c] != mainParent)
-                {
-                    Destroy(children[c].gameObject);
-                }
-            }
+            RemoveAllChildrenOf(mainParent);
+            RemoveAllChildrenOf(scenesInfoRoot);
         }
 
         void ReportError(string tag, string message)
@@ -1858,6 +1875,136 @@ namespace VoyageVoyage
             return sectionComplete;
         }
 
+        void DefineScene(DataToken sceneInfoToken, int index)
+        {
+            GameObject gltfSceneObject = Instantiate(gltfScenePrefab, scenesInfoRoot);
+            gltfSceneObject.name = $"Scene {index}";
+
+            GLTFScene gltfScene = gltfSceneObject.GetComponent<GLTFScene>();
+            if (gltfScene == null)
+            {
+                ReportError("DefineScene", $"The GLTFScene prefab is broken as it does NOT contain a GLTFScene component !");
+                return;
+            }
+            
+            if (sceneInfoToken.TokenType != TokenType.DataDictionary)
+            {
+                ReportError("DefineScene", $"Scene {index} is not defined correctly. Expected a Dictionary, got a {sceneInfoToken.TokenType}");
+                return;
+            }
+
+            DataDictionary sceneInfo = (DataDictionary)sceneInfoToken;
+
+            gltfScene.sceneName = DictOptString(sceneInfo, "name", "GLBLoader_AnonymousScene");
+            bool hasNodes = sceneInfo.TryGetValue("nodes", TokenType.DataList, out DataToken nodesToken);
+            if (!hasNodes)
+            {
+                ReportInfo("DefineScene", $"Scene {index} defines no nodes");
+                return;
+            }
+
+            DataList nodes = (DataList)nodesToken;
+            bool areNodesIndicesDefinedCorrectly = IsListComponentType(nodes, TokenType.Double);
+            if (!areNodesIndicesDefinedCorrectly)
+            {
+                ReportError("DefineScene", $"Scene {index} 'nodes' indices have invalid types");
+                return;
+            }
+            int nNodes = nodes.Count;
+
+            int nNodesKnown = m_nodes.Length;
+
+            GameObject[] sceneNodes = new GameObject[nNodes];
+            for (int n = 0; n < nNodes; n++)
+            {
+                int nodeIndex = (int)(double)nodes[n];
+                if (nodeIndex >= nNodesKnown)
+                {
+                    ReportError("Define", $"Scene {index} references node {nodeIndex} which isn't recognized by the loader");
+                    return;
+                }
+                sceneNodes[n] = m_nodes[nodeIndex];
+            }
+
+            gltfScene.nodes = sceneNodes;
+        }
+
+        int SetupScenes(int currentIndex)
+        {
+            if (scenesInfoRoot == null || gltfScenePrefab == null)
+            {
+                ReportError("SetupScenes", "The GLBLoader is not setup correctly to prepare 'scenes'. The prefab or the root are not defined !");
+                nScenes = 0;
+                defaultScene = -1;
+                return sectionComplete;
+            }
+
+            if (glbJson == null)
+            {
+                return errorValue;
+            }
+
+            if (currentIndex == 0)
+            {
+                bool hasScenes = glbJson.TryGetValue("scenes", TokenType.DataList, out DataToken unused);
+                if (!hasScenes)
+                {
+                    nScenes = 0;
+                    defaultScene = -1;
+                    return sectionComplete;
+                }
+            }
+
+            DataList scenes = (DataList)glbJson["scenes"];
+            int nScenesDefined = scenes.Count;
+
+            for (int i = currentIndex; i < nScenesDefined; i++)
+            {
+                DefineScene(scenes[i], i);
+            }
+
+            nScenes = scenesInfoRoot.childCount;
+
+            return sectionComplete;
+        }
+
+        int SelectScene(int unused)
+        {
+            if (glbJson == null)
+            {
+                return errorValue;
+            }
+
+            int currentScene = DictOptInt(glbJson, "scene", -1);
+            if (currentScene == -1)
+            {
+                return sectionComplete;
+            }
+            if (currentScene >= nScenes)
+            {
+                ReportError("SelectScene", $"This GLB defines scene {currentScene} as the default, but the loader doesn't know it");
+                return sectionComplete;
+            }
+            Transform sceneInfoTransform = scenesInfoRoot.GetChild(currentScene);
+            if (sceneInfoTransform == null)
+            {
+                ReportError("SelectScene", $"Got a null pointer when trying to retrieve scene {currentScene} !?");
+                return sectionComplete;
+            }
+            GLTFScene currentSceneInfo = sceneInfoTransform.GetComponent<GLTFScene>();
+            if (currentSceneInfo == null)
+            {
+                ReportError("SelectScene", $"No GLTF Scene component on the object representing Scene {currentScene} !?");
+                return sectionComplete;
+            }
+
+            currentSceneInfo.Show();
+            defaultScene = currentScene;
+
+            return sectionComplete;
+
+        }
+
         public void ParseGLB()
         {
 
@@ -1900,6 +2047,12 @@ namespace VoyageVoyage
                     break;
                 case 9:
                     currentIndex = SetupNodes(currentIndex);
+                    break;
+                case 10:
+                    currentIndex = SetupScenes(currentIndex);
+                    break;
+                case 11:
+                    currentIndex = SelectScene(currentIndex);
                     break;
                 default:
                     finished = true;
