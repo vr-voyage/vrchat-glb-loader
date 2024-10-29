@@ -8,6 +8,7 @@ using VRC.SDK3.Data;
 using VRC.SDK3.StringLoading;
 using VRC.SDKBase;
 using VRC.Udon;
+using static VRC.SDK3.Image.VRCImageDownloader.ImageDownloader;
 
 namespace VoyageVoyage
 {
@@ -38,7 +39,9 @@ namespace VoyageVoyage
         object[] m_accessors;
         public Material[] m_materials;
         object[] m_meshesInfo;
-        public Texture2D[] m_images;
+        public Texture2D[] m_textures;
+        object[] m_imagesProperties;
+        object[] m_samplerProperties;
         GameObject[] m_nodes;
 
         const int errorValue = -2;
@@ -81,7 +84,9 @@ namespace VoyageVoyage
             m_bufferViews = new object[0];
             m_accessors = new object[0];
             m_materials = new Material[0];
-            m_images = new Texture2D[0];
+            m_samplerProperties = new object[0];
+            m_imagesProperties = new object[0];
+            m_textures = new Texture2D[0];
             m_nodes = new GameObject[0];
 
             finished = false;
@@ -1411,9 +1416,9 @@ namespace VoyageVoyage
 
             int textureIndex = (int)(double)indexToken;
 
-            if ((textureIndex < 0) | (textureIndex >= m_images.Length)) return null;
+            if ((textureIndex < 0) | (textureIndex >= m_textures.Length)) return null;
 
-            return m_images[textureIndex];
+            return m_textures[textureIndex];
         }
 
         Material CreateMaterialFrom(DataDictionary materialInfo)
@@ -1571,31 +1576,108 @@ namespace VoyageVoyage
             return invalidTexture;
         }
 
-        Texture2D ParseImage(DataDictionary imageInfo, byte[] glb)
-        {
+        const int imagePropertyBufferViewIndex = 0;
+        const int imagePropertyFormatIndex = 1;
+        const int imagePropertyNameIndex = 2;
+        const int imagePropertyWidthIndex = 3;
+        const int imagePropertyHeightIndex = 4;
 
+        const int samplerPropertyFilterIndex = 0;
+        const int samplerPropertyWrapSIndex = 1;
+        const int samplerPropertyWrapTIndex = 2;
+        const int samplerPropertyNameIndex = 3;
+
+        const int GLTF_NEAREST = 9728;
+        const int GLTF_LINEAR = 9729;
+        const int GLTF_NEAREST_MIPMAP_NEAREST = 9984;
+        const int GLTF_LINEAR_MIPMAP_NEAREST = 9985;
+        const int GLTF_NEAREST_MIPMAP_LINEAR = 9986;
+        const int GLTF_LINEAR_MIPMAP_LINEAR = 9987;
+
+        const int GLTF_CLAMP_TO_EDGE = 33071;
+        const int GLTF_MIRRORED_REPEAT = 33648;
+        const int GLTF_REPEAT = 10497;
+
+
+
+        object[] CreateDefaultSampler()
+        {
+            return new object[] { FilterMode.Bilinear, TextureWrapMode.Repeat, TextureWrapMode.Repeat, "AnonymousSampler" };
+        }
+
+        TextureWrapMode GltfWrapModeToUnityWrapMode(int wrapMode)
+        {
+            switch (wrapMode)
+            {
+                case GLTF_CLAMP_TO_EDGE:
+                    return TextureWrapMode.Clamp;
+                case GLTF_REPEAT:
+                    return TextureWrapMode.Repeat;
+                case GLTF_MIRRORED_REPEAT:
+                    return TextureWrapMode.Mirror;
+                default:
+                    return TextureWrapMode.Repeat;
+            }
+        }
+
+        object ParseSampler(DataDictionary samplerInfo)
+        {
+            int minFilter = DictOptInt(samplerInfo, "minFilter", -1);
+            int magFilter = DictOptInt(samplerInfo, "magFilter", -1);
+
+            FilterMode filterMode = FilterMode.Bilinear;
+            if (minFilter == GLTF_LINEAR_MIPMAP_LINEAR) { filterMode = FilterMode.Trilinear; }
+            else if (minFilter == GLTF_NEAREST_MIPMAP_NEAREST || minFilter == GLTF_NEAREST) { filterMode = FilterMode.Point; }
+            else if (magFilter == GLTF_NEAREST) { filterMode = FilterMode.Point; }
+
+            int definedWrapModeS = DictOptInt(samplerInfo, "wrapS", -1);
+            int definedWrapModeT = DictOptInt(samplerInfo, "wrapT", -1);
+            TextureWrapMode wrapModeS = GltfWrapModeToUnityWrapMode(definedWrapModeS);
+            TextureWrapMode wrapModeT = GltfWrapModeToUnityWrapMode(definedWrapModeT);
+
+            string name = DictOptString(samplerInfo, "name", "AnonymousSampler");
+
+            object[] samplerProperties = new object[] { filterMode, wrapModeS, wrapModeT, name };
+            return samplerProperties;
+        }
+
+        object[] CreateInvalidImage()
+        {
+            return new object[] { -1, "InvalidFormat", "InvalidImage", -1, -1 };
+        }
+
+        object ParseImage(DataDictionary imageInfo, byte[] glb)
+        {
+            object[] imageData = CreateInvalidImage();
             bool checkFields = CheckFields(imageInfo, "bufferView", TokenType.Double);
             if (!checkFields)
             {
                 ReportError("ParseImage", "No bufferView associated with this texture !!");
-                return CreateInvalidTexture("NoBufferViewTexture");
+                return imageData;
             }
+
+            
 
             string textureName = DictOptString(imageInfo, "name", "Anonymous texture");
             
             int bufferViewIndex = (int)(double)imageInfo["bufferView"];
+            imageData[imagePropertyNameIndex] = textureName;
+
             if ((bufferViewIndex < 0) | (bufferViewIndex >= m_bufferViews.Length))
             {
                 ReportError("ParseImage", $"Invalid buffer view {bufferViewIndex}");
-                return CreateInvalidTexture(textureName);
+                return imageData;
             }
+            imageData[imagePropertyBufferViewIndex] = bufferViewIndex;
+
+
             int[] bufferView = (int[])m_bufferViews[bufferViewIndex];
 
             checkFields = CheckFields(imageInfo, "extensions", TokenType.DataDictionary);
             if (!checkFields)
             {
-                ReportError("ParseImage", "No extensions used. GLB Loader can't parse PNG/JPEG, so no data...");
-                return CreateInvalidTexture(textureName);
+                ReportError("ParseImage", "No extensions used. GLB Loader can't parse PNG/JPEG, so no loadable data for this image...");
+                return imageData;
             }
 
             DataDictionary extension = (DataDictionary)imageInfo["extensions"];
@@ -1603,7 +1685,7 @@ namespace VoyageVoyage
             if (!hasExtension)
             {
                 ReportError("ParseImage", "Invalid type for extensions");
-                return CreateInvalidTexture(textureName);
+                return imageData;
             }
 
             DataDictionary voyageExtension = (DataDictionary)voyageExtensionToken;
@@ -1615,9 +1697,20 @@ namespace VoyageVoyage
             if ((width == -1) | (height == 1) | (formatInfo == ""))
             {
                 ReportError("ParseImage", "No width, height or format informations on Voyage's extension");
-                return CreateInvalidTexture(textureName);
+                return imageData;
             }
 
+            imageData[imagePropertyFormatIndex] = formatInfo;
+            imageData[imagePropertyWidthIndex] = width;
+            imageData[imagePropertyHeightIndex] = height;
+
+            return imageData;
+        }
+
+        Texture2D CreateTexture2DFrom(object[] imageProperties, object[] samplerProperties)
+        {
+
+            string formatInfo = (string)imageProperties[imagePropertyFormatIndex];
             TextureFormat textureFormat;
             switch (formatInfo)
             {
@@ -1632,22 +1725,143 @@ namespace VoyageVoyage
                     break;
                 default:
                     ReportError("ParseImage", "Unknown texture format");
-                    return null;
+                    return CreateInvalidTexture("Unknown Format");
             }
 
-            
+            int bufferViewIndex = (int)imageProperties[imagePropertyBufferViewIndex];
+            int[] bufferViewProperties = (int[])m_bufferViews[bufferViewIndex];
 
-            int offset = glbDataStart + bufferView[bufferViewFieldOffset];
-            int size = bufferView[bufferViewFieldSize];
+            int offset = glbDataStart + bufferViewProperties[bufferViewFieldOffset];
+            int size = bufferViewProperties[bufferViewFieldSize];
 
             byte[] textureData = new byte[size];
             Buffer.BlockCopy(glb, offset, textureData, 0, size);
 
+            int width = (int)imageProperties[imagePropertyWidthIndex];
+            int height = (int)imageProperties[imagePropertyHeightIndex];
+            string imageName = (string)imageProperties[imagePropertyNameIndex];
+
             Texture2D tex = new Texture2D(width, height, textureFormat, false);
-            tex.name = DictOptString(imageInfo, "name", "Anonymous");
+            tex.name = imageName;
             tex.LoadRawTextureData(textureData);
             tex.Apply(false, false);
+
+            FilterMode filterMode = (FilterMode)samplerProperties[samplerPropertyFilterIndex];
+            TextureWrapMode wrapU = (TextureWrapMode)samplerProperties[samplerPropertyWrapSIndex];
+            TextureWrapMode wrapV = (TextureWrapMode)samplerProperties[samplerPropertyWrapTIndex];
+            ReportInfo("CreateTexture2DFrom", $"{wrapU} - {wrapV}");
+            tex.filterMode = filterMode;
+            tex.wrapModeU = wrapU;
+            tex.wrapModeV = wrapV;
             return tex;
+
+        }
+
+        int ParseTextures(int startFrom)
+        {
+            if (glbJson == null)
+            {
+                return errorValue;
+            }
+            if (currentIndex == 0)
+            {
+                bool hasTextures = glbJson.TryGetValue("textures", TokenType.DataList, out DataToken texturesListToken);
+                if (!hasTextures)
+                {
+                    m_textures = new Texture2D[0];
+                    return sectionComplete;
+                }
+            }
+
+            DataList texturesList = (DataList)glbJson["textures"];
+            int nTextures = texturesList.Count;
+
+            if (currentIndex == 0)
+            {
+                m_textures = new Texture2D[nTextures];
+            }
+
+            Texture[] textures = m_textures;
+            for (int i = startFrom; i < nTextures; i++)
+            {
+                if ((i != startFrom) & (!StillHaveTime()))
+                {
+                    return i;
+                }
+                DataToken textureToken = texturesList[i];
+                if (textureToken.TokenType != TokenType.DataDictionary) { continue; }
+                textures[i] = ParseTexture((DataDictionary)textureToken, i);
+            }
+            return sectionComplete;
+        }
+
+        Texture2D ParseTexture(DataDictionary textureInfo, int textureIndex)
+        {
+            int sourceImage = DictOptInt(textureInfo, "source", -1);
+            if (sourceImage == -1)
+            {
+                ReportError("ParseTexture", $"Texture {textureIndex} has no source. Returning an empty Texture.");
+                return CreateInvalidTexture("No source defined");
+            }
+
+            if (sourceImage > m_imagesProperties.Length)
+            {
+                ReportError("ParseTexture", $"Texture {textureIndex} source {sourceImage} is out of bounds (Only {m_imagesProperties.Length} images known)");
+                return CreateInvalidTexture("source out of bounds");
+            }
+
+            object[] imagesProperties = (object[])m_imagesProperties[sourceImage];
+            object[] samplerProperties = CreateDefaultSampler();
+            int samplerIndex = DictOptInt(textureInfo, "sampler", -1);
+
+            if (samplerIndex >= 0 && samplerIndex < m_samplerProperties.Length)
+            {
+                samplerProperties = (object[])m_samplerProperties[samplerIndex];
+            }
+            Texture2D texture = CreateTexture2DFrom(imagesProperties, samplerProperties);
+            if (textureInfo.TryGetValue("name", TokenType.String, out DataToken nameToken))
+            {
+                texture.name = (string)nameToken;
+            }
+            return texture;
+        }
+
+        int ParseSamplers(int startFrom)
+        {
+            if (glbJson == null)
+            {
+                return errorValue;
+            }
+            if (currentIndex == 0)
+            {
+                bool hasSamplers = glbJson.TryGetValue("samplers", TokenType.DataList, out DataToken samplersListToken);
+                if (!hasSamplers)
+                {
+                    m_samplerProperties = new object[0];
+                    return sectionComplete;
+                }
+            }
+
+            DataList samplersList = (DataList)glbJson["samplers"];
+            int nSamplers = samplersList.Count;
+
+            if (currentIndex == 0)
+            {
+                m_samplerProperties = new object[nSamplers];
+            }
+
+            object[] samplerProperties = m_samplerProperties;
+            for (int i = startFrom; i < nSamplers; i++)
+            {
+                if ((i != startFrom) & (!StillHaveTime()))
+                {
+                    return i;
+                }
+                DataToken samplerInfoToken = samplersList[i];
+                if (samplerInfoToken.TokenType != TokenType.DataDictionary) { continue; }
+                samplerProperties[i] = ParseSampler((DataDictionary)samplerInfoToken);
+            }
+            return sectionComplete;
         }
 
         int ParseImages(int startFrom)
@@ -1661,7 +1875,7 @@ namespace VoyageVoyage
                 bool hasImages = glbJson.TryGetValue("images", TokenType.DataList, out DataToken imagesListToken);
                 if (!hasImages)
                 {
-                    m_images = new Texture2D[0];
+                    m_imagesProperties = new object[0];
                     return sectionComplete;
                 }
             }
@@ -1671,10 +1885,10 @@ namespace VoyageVoyage
 
             if (currentIndex == 0)
             {
-                m_images = new Texture2D[nImages];
+                m_imagesProperties = new object[nImages];
             }
 
-            Texture2D[] textures = m_images;
+            object[] imagesProperties = m_imagesProperties;
             for (int i = startFrom; i < nImages; i++)
             {
                 if ((i != startFrom) & (!StillHaveTime()))
@@ -1682,8 +1896,8 @@ namespace VoyageVoyage
                     return i;
                 }
                 DataToken imageInfoToken = imagesList[i];
-                if (imageInfoToken.TokenType != TokenType.DataDictionary) continue;
-                textures[i] = ParseImage((DataDictionary)imageInfoToken, glb);
+                if (imageInfoToken.TokenType != TokenType.DataDictionary) { continue; }
+                imagesProperties[i] = ParseImage((DataDictionary)imageInfoToken, glb);
 
             }
             return sectionComplete;
@@ -2037,21 +2251,27 @@ namespace VoyageVoyage
                     currentIndex = ParseImages(currentIndex);
                     break;
                 case 6:
-                    currentIndex = ParseMaterials(currentIndex);
+                    currentIndex = ParseSamplers(currentIndex);
                     break;
                 case 7:
-                    currentIndex = ParseMeshes(currentIndex);
+                    currentIndex = ParseTextures(currentIndex);
                     break;
                 case 8:
-                    currentIndex = SpawnNodes(currentIndex);
+                    currentIndex = ParseMaterials(currentIndex);
                     break;
                 case 9:
-                    currentIndex = SetupNodes(currentIndex);
+                    currentIndex = ParseMeshes(currentIndex);
                     break;
                 case 10:
-                    currentIndex = SetupScenes(currentIndex);
+                    currentIndex = SpawnNodes(currentIndex);
                     break;
                 case 11:
+                    currentIndex = SetupNodes(currentIndex);
+                    break;
+                case 12:
+                    currentIndex = SetupScenes(currentIndex);
+                    break;
+                case 13:
                     currentIndex = SelectScene(currentIndex);
                     break;
                 default:
