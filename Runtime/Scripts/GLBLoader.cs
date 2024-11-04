@@ -26,6 +26,9 @@ namespace VoyageVoyage
         public Material baseMaterial;
         public Material unlitMaterialTemplate;
         public UdonSharpBehaviour[] stateReceivers;
+        public MaterialExtensionHandler[] materialsExtensionHandlers;
+
+        string[] extensionsHandledWithPlugins;
 
         public GLTFAsset assetInfoObject;
         public int defaultScene;
@@ -55,6 +58,28 @@ namespace VoyageVoyage
         int glbDataStart = 0;
         bool finished = false;
         float limit = 0;
+
+        const int GLTF_NEAREST = 9728;
+        const int GLTF_LINEAR = 9729;
+        const int GLTF_NEAREST_MIPMAP_NEAREST = 9984;
+        const int GLTF_LINEAR_MIPMAP_NEAREST = 9985;
+        const int GLTF_NEAREST_MIPMAP_LINEAR = 9986;
+        const int GLTF_LINEAR_MIPMAP_LINEAR = 9987;
+
+        const int GLTF_CLAMP_TO_EDGE = 33071;
+        const int GLTF_MIRRORED_REPEAT = 33648;
+        const int GLTF_REPEAT = 10497;
+
+        const int imagePropertyBufferViewIndex = 0;
+        const int imagePropertyFormatIndex = 1;
+        const int imagePropertyNameIndex = 2;
+        const int imagePropertyWidthIndex = 3;
+        const int imagePropertyHeightIndex = 4;
+
+        const int samplerPropertyFilterIndex = 0;
+        const int samplerPropertyWrapSIndex = 1;
+        const int samplerPropertyWrapTIndex = 2;
+        const int samplerPropertyNameIndex = 3;
 
         const int accessorFieldBufferParsed = 0;
         const int accessorFieldBufferReference = 1;
@@ -94,7 +119,24 @@ namespace VoyageVoyage
 
             defaultScene = -1;
             nScenes = 0;
-    }
+        }
+
+        const string invalidExtensionName = "Invalid extension\n";
+
+        void GenerateMaterialsExtensionsDictionary()
+        {
+            extensionsHandledWithPlugins = new string[materialsExtensionHandlers.Length];
+            int nHandlers = materialsExtensionHandlers.Length;
+            for (int h = 0; h < nHandlers; h++)
+            {
+                MaterialExtensionHandler handler = materialsExtensionHandlers[h];
+                string extensionName = invalidExtensionName;
+                if (handler != null) { extensionName = handler.HandledExtensionName(); }
+                extensionsHandledWithPlugins[h] = extensionName;
+                ReportInfo("GenerateMaterialsExtensionsDictionary", $"Added {extensionName} to the list !");
+            }
+            
+        }
 
         string DictOptString(DataDictionary dict, string fieldName, string defaultValue)
         {
@@ -125,6 +167,20 @@ namespace VoyageVoyage
                 return (float)(double)doubleToken;
             }
 
+            return retValue;
+        }
+
+        Vector2 DictOptVector2(DataDictionary dict, string fieldName, Vector2 defaultValue)
+        {
+            Vector2 retValue = defaultValue;
+            if (dict.TryGetValue(fieldName, TokenType.DataList, out DataToken dataListToken))
+            {
+                DataList list = (DataList)dataListToken;
+                if ((list.Count >= 2) && (IsListComponentType(list, TokenType.Double)))
+                {
+                    retValue = DataListToVector2(list);
+                }
+            }
             return retValue;
         }
 
@@ -291,6 +347,8 @@ namespace VoyageVoyage
             m_accessorTypesInfo[5125] = 4;
             // 5126 is FLOAT
             m_accessorTypesInfo[5126] = 4;
+
+            GenerateMaterialsExtensionsDictionary();
 
             //DownloadModel();
         }
@@ -549,6 +607,10 @@ namespace VoyageVoyage
             return new Quaternion((float)(double)list[0], (float)(double)list[1], (float)(double)list[2], (float)(double)list[3]);
         }
 
+        Vector2 DataListToVector2(DataList list)
+        {
+            return new Vector2((float)(double)list[0], (float)(double)list[1]);
+        }
         Vector3 DataListToVector3(DataList list)
         {
             return new Vector3((float)(double)list[0], (float)(double)list[1], (float)(double)list[2]);
@@ -1401,55 +1463,114 @@ namespace VoyageVoyage
             material.renderQueue = 2450;
         }
 
-        Texture2D MaterialInfoGetTextureIfAvailable(DataDictionary info, string textureKey, out DataDictionary outTextureInfo)
-        {
+        Vector2 defaultOffset = Vector2.zero;
+        Vector2 defaultScale = Vector2.one;
 
+
+        void HandleKhrTextureTransform(DataDictionary textureInfo, out Vector2 outOffset, out Vector2 outScale)
+        {
+            outOffset = defaultOffset;
+            outScale = defaultScale;
+            bool gotExtensions = textureInfo.TryGetValue(
+                "extensions",
+                TokenType.DataDictionary,
+                out DataToken extensionsDictToken);
+            if (!gotExtensions) { return; }
+
+            bool gotExtension = textureInfo.TryGetValue("KHR_texture_transform", TokenType.DataDictionary, out DataToken extensionToken);
+            if (!gotExtension) { return; }
+
+            DataDictionary textureTransform = (DataDictionary)extensionToken;
+
+            outOffset = DictOptVector2(textureTransform, "offset", Vector2.zero);
+            outScale = DictOptVector2(textureTransform, "scale", Vector2.one);
+        }
+
+
+        bool ApplyTextureIfAvailable(DataDictionary info, string textureKey, out DataDictionary outTextureInfo, Material mat, string matPropertyName, params string[] keywords)
+        {
             outTextureInfo = null;
             bool textureKeyExist = info.TryGetValue(textureKey, TokenType.DataDictionary, out DataToken textureInfoToken);
-            if (!textureKeyExist) { return null; }
-            outTextureInfo = (DataDictionary)textureInfoToken;
+            if (!textureKeyExist) { return false; }
 
             DataDictionary textureInfo = (DataDictionary)textureInfoToken;
             bool hasIndex = textureInfo.TryGetValue("index", TokenType.Double, out DataToken indexToken);
 
-            if (!hasIndex) return null;
+            if (!hasIndex) { return false; }
 
             int textureIndex = (int)(double)indexToken;
 
-            if ((textureIndex < 0) | (textureIndex >= m_textures.Length)) return null;
+            if ((textureIndex < 0) | (textureIndex >= m_textures.Length)) { return false; }
 
-            return m_textures[textureIndex];
+            Vector2 textureOffset = defaultOffset;
+            Vector2 textureScale = defaultScale;
+            HandleKhrTextureTransform(textureInfo, out defaultOffset, out defaultScale);
+
+            Texture2D textureToApply = m_textures[textureIndex];
+
+            SetMaterialTexture(mat, matPropertyName, textureToApply, textureOffset, textureScale, keywords);
+            outTextureInfo = textureInfo;
+
+            return true;
+        }
+
+        void MaterialEnableKeywords(Material mat, string[] keywords)
+        {
+            int nKeywords = keywords.Length;
+            for (int k = 0; k < nKeywords; k++)
+            {
+                string kewyord = keywords[k];
+                if (keywords == null) { continue; }
+                mat.EnableKeyword(kewyord);
+            }
+        }
+
+        void SetMaterialTexture(Material mat, string propertyName, Texture2D texture, Vector2 textureOffset, Vector2 textureScale, string[] keywords)
+        {
+            if (texture == null) { return; }
+            MaterialEnableKeywords(mat, keywords);
+            mat.SetTexture(propertyName, texture);
+            mat.SetTextureOffset(propertyName, textureOffset);
+            mat.SetTextureOffset(propertyName, textureScale);
         }
 
         Material CreateMaterialFrom(DataDictionary materialInfo)
         {
-            bool isUnlit = false;
             string textureUnit = "_MainTex";
             string colorUnit = "_Color";
+            DataDictionary unused;
+            Material mat = NewMaterial(baseMaterial);
+            mat.name = DictOptString(materialInfo, "name", mat.name);
             if (materialInfo.TryGetValue("extensions", TokenType.DataDictionary, out DataToken extensionsDictToken))
             {
                 DataDictionary extensionsDict = (DataDictionary)extensionsDictToken;
-                isUnlit = extensionsDict.ContainsKey("KHR_materials_unlit");
-            }
-            Material mat = (!isUnlit ? NewMaterial(baseMaterial) : NewMaterial(unlitMaterialTemplate));
-            /* Trying Standard again */
-            if (isUnlit)
-            {
-                mat.EnableKeyword("_EMISSION");
-                mat.globalIlluminationFlags = MaterialGlobalIlluminationFlags.None;
-                textureUnit = "_EmissionMap";
-                colorUnit = "_EmissionColor";
-                mat.SetColor(colorUnit, Color.white);
+                ReportInfo("CreateMaterialFrom", "Handling extensions");
+
+                int nHandledExtensions = extensionsHandledWithPlugins.Length;
+
+                for (int e = 0; e < nHandledExtensions; e++)
+                {
+                    MaterialExtensionHandler handler = materialsExtensionHandlers[e];
+                    if (handler == null) { continue; }
+
+                    string extensionName = extensionsHandledWithPlugins[e];
+                    bool extensionUsed = extensionsDict.TryGetValue(
+                        extensionName,
+                        TokenType.DataDictionary,
+                        out DataToken extensionDefinitionToken);
+                    if (!extensionUsed) { continue; }
+
+                    handler.HandleMaterial(mat, (DataDictionary)extensionDefinitionToken, materialInfo, this);
+
+                }
             }
 
-            mat.name = DictOptString(materialInfo, "name", mat.name);
 
-            Texture2D normalTexture = MaterialInfoGetTextureIfAvailable(materialInfo, "normalTexture", out DataDictionary normalTextureInfo);
-            if (normalTexture != null)
+            bool normalTextureApplied = ApplyTextureIfAvailable(
+                materialInfo, "normalTexture", out DataDictionary normalTextureInfo,
+                mat, "_BumpMap", "_NORMALMAP");
+            if (normalTextureApplied)
             {
-                mat.EnableKeyword("_NORMALMAP");
-                // Gotta love the coherency here...
-                mat.SetTexture("_BumpMap", normalTexture);
                 mat.SetFloat("_BumpScale", DictOptFloat(normalTextureInfo, "scale", 1.0f));
             }
 
@@ -1457,10 +1578,7 @@ namespace VoyageVoyage
             /* FIXME Handle different Alpha modes correctly ! */
             if (alphaMode != "")
             {
-                if (alphaMode == "BLEND")
-                {
-                    MaterialSetAsFade(mat);
-                }
+                if (alphaMode == "BLEND") { MaterialSetAsFade(mat); }
                 else if (alphaMode == "MASK")
                 {
                     MaterialSetAsCutout(mat, DictOptFloat(materialInfo, "alphaCutoff", 0.5f));
@@ -1470,15 +1588,13 @@ namespace VoyageVoyage
             if (materialInfo.TryGetValue("pbrMetallicRoughness", TokenType.DataDictionary, out DataToken pbrToken))
             {
                 DataDictionary pbrInfo = (DataDictionary)pbrToken;
-                Texture2D albedoTexture = MaterialInfoGetTextureIfAvailable(pbrInfo, "baseColorTexture", out DataDictionary baseColorTexInfo);
-                if (albedoTexture != null)
-                {
-                    mat.SetTexture(textureUnit, albedoTexture);
-                }
 
-
-                Texture2D metallicRoughnessTexture = MaterialInfoGetTextureIfAvailable(pbrInfo, "metallicRoughnessTexture", out DataDictionary metalRoughTexInfo);
-                if (metallicRoughnessTexture != null) mat.SetTexture("_MetallicGlossMap", metallicRoughnessTexture);
+                ApplyTextureIfAvailable(
+                    pbrInfo, "baseColorTexture", out unused,
+                    mat, textureUnit);
+                ApplyTextureIfAvailable(
+                    pbrInfo, "metallicRoughnessTexture", out unused,
+                    mat, "_MetallicGlossMap");
 
                 // https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html#reference-material-pbrmetallicroughness
                 // baseColorFactor : Default 1
@@ -1504,19 +1620,17 @@ namespace VoyageVoyage
                 mat.SetColor("_EmissionColor", DataListToColorRGB((DataList)emissionColorToken));
             }
 
-            Texture2D emissionTexture = MaterialInfoGetTextureIfAvailable(materialInfo, "emissiveTexture", out DataDictionary emissiveTextureInfo);
-            if (emissionTexture != null)
+            bool appliedEmission = ApplyTextureIfAvailable(
+                    materialInfo, "emissiveTexture", out unused,
+                    mat, "_EmissionMap", "_EMISSION");
+            if (appliedEmission)
             {
-                mat.EnableKeyword("_EMISSION");
                 mat.globalIlluminationFlags = MaterialGlobalIlluminationFlags.None;
-                mat.SetTexture("_EmissionMap", emissionTexture);
             }
 
-            Texture2D occlusionTexture = MaterialInfoGetTextureIfAvailable(materialInfo, "occlusionTexture", out DataDictionary occlusionTextureInfo);
-            if (occlusionTexture != null)
-            {
-                mat.SetTexture("_OcclusionMap", occlusionTexture);
-            }
+            ApplyTextureIfAvailable(
+                    materialInfo, "occlusionTexture", out unused,
+                    mat, "_OcclusionMap");
 
             // Let's forget about Double side for the moment...
             return mat;
@@ -1575,30 +1689,6 @@ namespace VoyageVoyage
             invalidTexture.name = name;
             return invalidTexture;
         }
-
-        const int imagePropertyBufferViewIndex = 0;
-        const int imagePropertyFormatIndex = 1;
-        const int imagePropertyNameIndex = 2;
-        const int imagePropertyWidthIndex = 3;
-        const int imagePropertyHeightIndex = 4;
-
-        const int samplerPropertyFilterIndex = 0;
-        const int samplerPropertyWrapSIndex = 1;
-        const int samplerPropertyWrapTIndex = 2;
-        const int samplerPropertyNameIndex = 3;
-
-        const int GLTF_NEAREST = 9728;
-        const int GLTF_LINEAR = 9729;
-        const int GLTF_NEAREST_MIPMAP_NEAREST = 9984;
-        const int GLTF_LINEAR_MIPMAP_NEAREST = 9985;
-        const int GLTF_NEAREST_MIPMAP_LINEAR = 9986;
-        const int GLTF_LINEAR_MIPMAP_LINEAR = 9987;
-
-        const int GLTF_CLAMP_TO_EDGE = 33071;
-        const int GLTF_MIRRORED_REPEAT = 33648;
-        const int GLTF_REPEAT = 10497;
-
-
 
         object[] CreateDefaultSampler()
         {
