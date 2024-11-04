@@ -1,4 +1,7 @@
-﻿using UnityEngine;
+﻿using System;
+using System.CodeDom;
+using UnityEngine;
+using UnityEngine.Rendering;
 using VoyageVoyage;
 using VRC.SDK3.Data;
 
@@ -225,14 +228,12 @@ public class VRCMMtoonMaterialExtension : MaterialExtensionHandler
         DataDictionary extensions = (DataDictionary)extensionsDictToken;
         DumpDictionaryKeys(extensions);
         bool gotExtension = extensions.TryGetValue("KHR_texture_transform", TokenType.DataDictionary, out DataToken extensionToken);
-        if (!gotExtension) { Debug.Log("<color=orange>No KHR_texture_transform</color>"); return; }
+        if (!gotExtension) { return; }
 
-        Debug.Log("<color=cyan>Got an extension there !</color>");
         DataDictionary textureTransform = (DataDictionary)extensionToken;
 
         outOffset = DictOptVector2(textureTransform, "offset", Vector2.zero);
         outScale = DictOptVector2(textureTransform, "scale", Vector2.one);
-        Debug.Log($"<color=cyan>Got Offset {outOffset} and Scale {outScale} !</color>");
     }
 
     void TryApplyProperty(GLBLoader loader, Material mat, DataDictionary gltfMtoon, object[] propertyInfo)
@@ -336,6 +337,75 @@ public class VRCMMtoonMaterialExtension : MaterialExtensionHandler
         }
     }
 
+    const string unitySrcBlend = "_M_SrcBlend";
+    const string unityDstBlend = "_M_DstBlend";
+    const string unityAlphaToMask = "_M_AlphaToMask";
+    const string unityZWrite = "_M_ZWrite";
+    const string unityCullMode = "_M_CullMode";
+
+    void SetupRenderingMode(Material material, DataDictionary mainDefinition, DataDictionary extensionDefinition)
+    {
+        int alphaMode = 0;
+        if (mainDefinition.TryGetValue("alphaMode", TokenType.String, out DataToken alphaModeStringToken))
+        {
+            string mode = (string)alphaModeStringToken;
+            if (mode == "MASK") { alphaMode = 1; }
+            if (mode == "BLEND") { alphaMode = 2; }
+        }
+
+        int zWrite = 0;
+        if (extensionDefinition.TryGetValue("transparentWithZWrite", TokenType.Double, out DataToken transparentWithZWriteToken))
+        {
+            zWrite = (int)(double)transparentWithZWriteToken;
+        }
+
+        int renderQueueOffset = 0;
+        if (extensionDefinition.TryGetValue("renderQueueOffsetNumber", TokenType.Double, out DataToken renderQueueNumberToken))
+        {
+            renderQueueOffset = (int)(double)renderQueueNumberToken;
+        }
+
+        switch (alphaMode)
+        {
+            case 0:
+                material.SetOverrideTag("RenderType", "Opaque");
+                material.SetInt(unitySrcBlend, (int)BlendMode.One);
+                material.SetInt(unityDstBlend, (int)BlendMode.Zero);
+                material.SetInt(unityZWrite, 1);
+                material.SetInt(unityAlphaToMask, 0);
+
+                material.renderQueue = (int)RenderQueue.Geometry;
+                break;
+            case 1:
+                material.SetOverrideTag("RenderType", "TransparentCutout");
+                material.SetInt(unitySrcBlend, (int)BlendMode.One);
+                material.SetInt(unityDstBlend, (int)BlendMode.Zero);
+                material.SetInt(unityZWrite, 1);
+                material.SetInt(unityAlphaToMask, 1);
+
+                material.renderQueue = (int)RenderQueue.AlphaTest;
+                break;
+            case 2:
+                material.SetOverrideTag("RenderType", "Transparent");
+                material.SetInt(unitySrcBlend, (int)BlendMode.SrcAlpha);
+                material.SetInt(unityDstBlend, (int)BlendMode.OneMinusSrcAlpha);
+                material.SetInt(unityZWrite, zWrite);
+                material.SetInt(unityAlphaToMask, 0);
+
+                if (zWrite == 0)
+                {
+                    renderQueueOffset = Mathf.Clamp(renderQueueOffset, -9, 0);
+                    material.renderQueue = (int)RenderQueue.Transparent + renderQueueOffset;
+                }
+                else
+                {
+                    renderQueueOffset = Mathf.Clamp(renderQueueOffset, 0, +9);
+                    material.renderQueue = (int)RenderQueue.GeometryLast + 1 + renderQueueOffset; // Transparent First + N
+                }
+
+                break;
+        }
+    }
 
     public override void HandleInternal(Material material, DataDictionary extensionDefinition, DataDictionary mainMaterialDefinition, GLBLoader loader)
     {
@@ -356,6 +426,15 @@ public class VRCMMtoonMaterialExtension : MaterialExtensionHandler
             material.EnableKeyword("_NORMALMAP");
         }
 
+        if (extensionDefinition.TryGetValue("transparentWithZWrite", TokenType.Double, out DataToken zWriteModeToken))
+        {
+            int zWrite = (int)(double)zWriteModeToken;
+            material.SetInt("_M_ZWrite", zWrite);
+        }
+
+
+        SetupRenderingMode(material, mainMaterialDefinition, extensionDefinition);
+
         int currentOutlineMode = (int)material.GetFloat("_OutlineWidthMode");
         if (currentOutlineMode == 1)
         {
@@ -365,7 +444,6 @@ public class VRCMMtoonMaterialExtension : MaterialExtensionHandler
         {
             material.EnableKeyword("_MTOON_OUTLINE_SCREEN");
         }
-        
     }
 
     public override string HandledExtensionName()

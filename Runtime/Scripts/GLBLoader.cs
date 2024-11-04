@@ -1439,6 +1439,7 @@ namespace VoyageVoyage
         // Shamelessly stolen from https://forum.unity.com/threads/standard-material-shader-ignoring-setfloat-property-_mode.344557/
         public static void MaterialSetAsFade(Material material)
         {
+            Debug.Log($"Setting material {material.name} as Transparent");
             material.SetOverrideTag("RenderType", "Transparent");
             material.DisableKeyword("_ALPHATEST_ON");
             material.EnableKeyword("_ALPHABLEND_ON");
@@ -1541,30 +1542,6 @@ namespace VoyageVoyage
             DataDictionary unused;
             Material mat = NewMaterial(baseMaterial);
             mat.name = DictOptString(materialInfo, "name", mat.name);
-            if (materialInfo.TryGetValue("extensions", TokenType.DataDictionary, out DataToken extensionsDictToken))
-            {
-                DataDictionary extensionsDict = (DataDictionary)extensionsDictToken;
-                ReportInfo("CreateMaterialFrom", "Handling extensions");
-
-                int nHandledExtensions = extensionsHandledWithPlugins.Length;
-
-                for (int e = 0; e < nHandledExtensions; e++)
-                {
-                    MaterialExtensionHandler handler = materialsExtensionHandlers[e];
-                    if (handler == null) { continue; }
-
-                    string extensionName = extensionsHandledWithPlugins[e];
-                    bool extensionUsed = extensionsDict.TryGetValue(
-                        extensionName,
-                        TokenType.DataDictionary,
-                        out DataToken extensionDefinitionToken);
-                    if (!extensionUsed) { continue; }
-
-                    handler.HandleMaterial(mat, (DataDictionary)extensionDefinitionToken, materialInfo, this);
-
-                }
-            }
-
 
             bool normalTextureApplied = ApplyTextureIfAvailable(
                 materialInfo, "normalTexture", out DataDictionary normalTextureInfo,
@@ -1631,6 +1608,30 @@ namespace VoyageVoyage
             ApplyTextureIfAvailable(
                     materialInfo, "occlusionTexture", out unused,
                     mat, "_OcclusionMap");
+
+            if (materialInfo.TryGetValue("extensions", TokenType.DataDictionary, out DataToken extensionsDictToken))
+            {
+                DataDictionary extensionsDict = (DataDictionary)extensionsDictToken;
+                ReportInfo("CreateMaterialFrom", "Handling extensions");
+
+                int nHandledExtensions = extensionsHandledWithPlugins.Length;
+
+                for (int e = 0; e < nHandledExtensions; e++)
+                {
+                    MaterialExtensionHandler handler = materialsExtensionHandlers[e];
+                    if (handler == null) { continue; }
+
+                    string extensionName = extensionsHandledWithPlugins[e];
+                    bool extensionUsed = extensionsDict.TryGetValue(
+                        extensionName,
+                        TokenType.DataDictionary,
+                        out DataToken extensionDefinitionToken);
+                    if (!extensionUsed) { continue; }
+
+                    handler.HandleMaterial(mat, (DataDictionary)extensionDefinitionToken, materialInfo, this);
+
+                }
+            }
 
             // Let's forget about Double side for the moment...
             return mat;
