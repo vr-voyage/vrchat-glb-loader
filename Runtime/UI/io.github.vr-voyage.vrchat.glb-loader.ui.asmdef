@@ -1,0 +1,22 @@
+{
+    "name": "io.github.vr-voyage.vrchat.glb-loader.ui",
+    "rootNamespace": "",
+    "references": [
+        "VRC.SDK3",
+        "VRC.SDKBase",
+        "UdonSharp.Runtime",
+        "VRC.Udon.Serialization.OdinSerializer",
+        "VRC.Udon",
+        "io.github.vr-voyage.vrchat.glb-loader",
+        "Unity.TextMeshPro"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
