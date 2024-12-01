@@ -1,9 +1,7 @@
 ﻿
 using UdonSharp;
-using UnityEditor.Build.Reporting;
 using UnityEngine;
 using VRC.SDKBase;
-using VRC.Udon;
 
 namespace VoyageVoyage
 {
