@@ -1,9 +1,6 @@
 ﻿
 using UdonSharp;
-using UnityEngine;
 using VoyageVoyage;
-using VRC.SDKBase;
-using VRC.Udon;
 
 public class ShowAssetInfo : UdonSharpBehaviour
 {
@@ -15,6 +12,9 @@ public class ShowAssetInfo : UdonSharpBehaviour
 
     public void SceneLoaded()
     {
+        if (loader == null) { return; }
+        var assetInfoObject = loader.assetInfoObject;
+        if (assetInfoObject == null) { return; }
         copyright.text = loader.assetInfoObject.copyright;
         generator.text = loader.assetInfoObject.generator;
         version.text = loader.assetInfoObject.version;

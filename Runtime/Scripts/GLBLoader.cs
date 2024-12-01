@@ -1,14 +1,10 @@
 ﻿
 using System;
-using System.Runtime.InteropServices.WindowsRuntime;
 using UdonSharp;
 using UnityEngine;
-using UnityEngine.UIElements;
 using VRC.SDK3.Data;
 using VRC.SDK3.StringLoading;
 using VRC.SDKBase;
-using VRC.Udon;
-using static VRC.SDK3.Image.VRCImageDownloader.ImageDownloader;
 
 namespace VoyageVoyage
 {
@@ -97,6 +93,10 @@ namespace VoyageVoyage
         const int bufferViewFieldTarget = 4;
         const int bufferViewFieldsCount = 5;
 
+        const string voyageExtensionName = "EXT_voyage_exporter";
+        const string invalidExtensionName = "Invalid extension\n";
+
+
         void ResetState()
         {
             currentState = -1;
@@ -121,7 +121,6 @@ namespace VoyageVoyage
             nScenes = 0;
         }
 
-        const string invalidExtensionName = "Invalid extension\n";
 
         void GenerateMaterialsExtensionsDictionary()
         {
@@ -300,8 +299,6 @@ namespace VoyageVoyage
         {
             NotifyState("SceneCleared");
             ResetState();
-
-
             RemoveAllChildrenOf(mainParent);
             RemoveAllChildrenOf(scenesInfoRoot);
         }
@@ -1680,13 +1677,11 @@ namespace VoyageVoyage
             return sectionComplete;
         }
 
-        const int offsetIndex = 0;
-        const int sizeIndex = 1;
-        string voyageExtensionName = "EXT_voyage_exporter";
+
 
         Texture2D CreateInvalidTexture(string name)
         {
-            Texture2D invalidTexture = new Texture2D(0, 0);
+            Texture2D invalidTexture = new Texture2D(1, 1);
             invalidTexture.name = name;
             return invalidTexture;
         }
@@ -1760,9 +1755,6 @@ namespace VoyageVoyage
                 return imageData;
             }
             imageData[imagePropertyBufferViewIndex] = bufferViewIndex;
-
-
-            int[] bufferView = (int[])m_bufferViews[bufferViewIndex];
 
             checkFields = CheckFields(imageInfo, "extensions", TokenType.DataDictionary);
             if (!checkFields)
@@ -2386,6 +2378,14 @@ namespace VoyageVoyage
             //ParseNodes((DataList)glbJsonRoot["nodes"]);
             
 
+        }
+
+        public void PrintStateHandlers()
+        {
+            foreach (var handler in stateReceivers)
+            {
+                ReportInfo("PrintStateHandlers", $"{handler.name}");
+            }
         }
     }
 

@@ -302,6 +302,7 @@ MonoBehaviour:
   - {fileID: 0}
   materialsExtensionHandlers:
   - {fileID: 8952496657196326491}
+  - {fileID: 5450490981598446531}
   assetInfoObject: {fileID: 2411446425767274197}
   defaultScene: 0
   nScenes: 0

@@ -12,7 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: c333ccfdd0cbdbc4ca30cef2dd6e6b9b, type: 3}
   m_Name: VRCMMtoonMaterialExtension
   m_EditorClassIdentifier: 
-  serializedUdonProgramAsset: {fileID: 11400000, guid: 8aa5eb46d59ff3f4ab4f0e2a089db09e,
+  serializedUdonProgramAsset: {fileID: 11400000, guid: d8f74710a8cedb44e9fa2655e54c71e8,
     type: 2}
   udonAssembly: 
   assemblyError: 

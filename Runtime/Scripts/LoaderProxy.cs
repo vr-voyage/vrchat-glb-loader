@@ -1,5 +1,6 @@
 ﻿
 using UdonSharp;
+using UnityEditor.Build.Reporting;
 using UnityEngine;
 using VRC.SDKBase;
 using VRC.Udon;
@@ -13,6 +14,7 @@ namespace VoyageVoyage
         public GameObject loaderPrefab;
         public HierarchyManager glbHierarchyManager;
         public UIPanel panel;
+        public UdonSharpBehaviour assetInfoPanel;
         Transform glbLoaderParent;
 
         private void OnEnable()
@@ -34,7 +36,7 @@ namespace VoyageVoyage
             return glbLoader.IsAlive(currentTime) == currentTime;
         }
 
-        void DestroyLoader()
+        public void DestroyLoader()
         {
             GameObject glbLoaderObject = glbLoader.gameObject;
             Destroy(glbLoaderObject);
@@ -45,9 +47,10 @@ namespace VoyageVoyage
             GameObject newGLBLoaderObject = Instantiate(loaderPrefab, glbLoaderParent);
             GLBLoader newLoader = newGLBLoaderObject.GetComponent<GLBLoader>();
             glbLoader = newLoader;
+            assetInfoPanel.SetProgramVariable("loader", glbLoader);
             glbHierarchyManager = glbLoader.GetComponentInChildren<HierarchyManager>();
 
-            glbLoader.stateReceivers = new UdonSharpBehaviour[] { glbHierarchyManager, panel };
+            newLoader.stateReceivers = new UdonSharpBehaviour[] { panel, glbHierarchyManager, assetInfoPanel };
         }
 
         public void OwnColliderStateOn()

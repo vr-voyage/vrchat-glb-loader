@@ -970,6 +970,7 @@ MonoBehaviour:
     type: 3}
   glbHierarchyManager: {fileID: 118002774115505677}
   panel: {fileID: 8771672517751499584}
+  assetInfoPanel: {fileID: 1527262771872559805}
 --- !u!114 &5035154980632687931
 MonoBehaviour:
   m_ObjectHideFlags: 0
