@@ -24,6 +24,8 @@ namespace VoyageVoyage
         public UdonSharpBehaviour[] stateReceivers;
         public MaterialExtensionHandler[] materialsExtensionHandlers;
 
+        public DDSReader ddsTextureParser;
+
         string[] extensionsHandledWithPlugins;
 
         public GLTFAsset assetInfoObject;
@@ -94,7 +96,9 @@ namespace VoyageVoyage
         const int bufferViewFieldsCount = 5;
 
         const string voyageExtensionName = "EXT_voyage_exporter";
+        const string msftExtensionName = "MSFT_texture_dds";
         const string invalidExtensionName = "Invalid extension\n";
+        const string ddsMimeType = "image/vnd-ms.dds";
 
 
         void ResetState()
@@ -1756,10 +1760,17 @@ namespace VoyageVoyage
             }
             imageData[imagePropertyBufferViewIndex] = bufferViewIndex;
 
+            string mimeType = DictOptString(imageInfo, "mimeType", "");
+            if (mimeType == ddsMimeType)
+            {
+                imageData[imagePropertyFormatIndex] = ddsMimeType;
+                return imageData;
+            }
+
             checkFields = CheckFields(imageInfo, "extensions", TokenType.DataDictionary);
             if (!checkFields)
             {
-                ReportError("ParseImage", "No extensions used. GLB Loader can't parse PNG/JPEG, so no loadable data for this image...");
+                ReportError("ParseImage", "No extensions used on the images. This might be not be loaded correctly't parse PNG/JPEG, so no loadable data for this image...");
                 return imageData;
             }
 
@@ -1790,9 +1801,40 @@ namespace VoyageVoyage
             return imageData;
         }
 
+        Texture2D CreateTextureDDS(int bufferIndex, object[] samplerProperties)
+        {
+            int[] bufferViewProperties = (int[])m_bufferViews[bufferIndex];
+
+            int offset = glbDataStart + bufferViewProperties[bufferViewFieldOffset];
+            int size = bufferViewProperties[bufferViewFieldSize];
+
+            byte[] textureData = new byte[size];
+            Buffer.BlockCopy(glb, offset, textureData, 0, size);
+
+            /* FIXME : Might be a way to avoid that previous copy,
+             * but the DDS Reader is too dumb right now and will try to take everything from the header
+             * as the texture content, instead of evaluating how much it actually needs ! */
+            Texture2D ddsTexture = ddsTextureParser.Parse(textureData, 0);
+            if (ddsTexture != null)
+            {
+                FilterMode filterMode = (FilterMode)samplerProperties[samplerPropertyFilterIndex];
+                TextureWrapMode wrapU = (TextureWrapMode)samplerProperties[samplerPropertyWrapSIndex];
+                TextureWrapMode wrapV = (TextureWrapMode)samplerProperties[samplerPropertyWrapTIndex];
+                ddsTexture.filterMode = filterMode;
+                ddsTexture.wrapModeU = wrapU;
+                ddsTexture.wrapModeV = wrapV;
+                return ddsTexture;
+            }
+            else
+            {
+                return CreateInvalidTexture("Could not load DDS Data");
+            }
+        }
+
         Texture2D CreateTexture2DFrom(object[] imageProperties, object[] samplerProperties)
         {
 
+            int bufferViewIndex = (int)imageProperties[imagePropertyBufferViewIndex];
             string formatInfo = (string)imageProperties[imagePropertyFormatIndex];
             TextureFormat textureFormat;
             switch (formatInfo)
@@ -1806,12 +1848,14 @@ namespace VoyageVoyage
                 case "BC7":
                     textureFormat = TextureFormat.BC7;
                     break;
+                case ddsMimeType:
+                    return CreateTextureDDS(bufferViewIndex, samplerProperties);
                 default:
-                    ReportError("ParseImage", "Unknown texture format");
+                    ReportError("CreateTexture2DFrom", $"Unknown texture format {formatInfo}");
                     return CreateInvalidTexture("Unknown Format");
             }
 
-            int bufferViewIndex = (int)imageProperties[imagePropertyBufferViewIndex];
+            
             int[] bufferViewProperties = (int[])m_bufferViews[bufferViewIndex];
 
             int offset = glbDataStart + bufferViewProperties[bufferViewFieldOffset];
@@ -1878,9 +1922,33 @@ namespace VoyageVoyage
             return sectionComplete;
         }
 
+        int UseBestTextureSource(DataDictionary textureInfo)
+        {
+            int source = DictOptInt(textureInfo, "source", -1);
+
+            bool gotExtensions =
+                textureInfo.TryGetValue("extensions", TokenType.DataDictionary, out DataToken extensionsToken);
+            if (!gotExtensions) { return source; }
+
+            DataDictionary extensions = (DataDictionary)extensionsToken;
+
+            bool gotMsftExtension = extensions.TryGetValue(msftExtensionName, TokenType.DataDictionary, out DataToken msftExtensionDataToken);
+            if (!gotMsftExtension) { return source; }
+
+            int msftSource = DictOptInt((DataDictionary)msftExtensionDataToken, "source", -1);
+            if (msftSource != -1)
+            {
+                return msftSource;
+            }
+
+            return source;
+
+        }
+
         Texture2D ParseTexture(DataDictionary textureInfo, int textureIndex)
         {
-            int sourceImage = DictOptInt(textureInfo, "source", -1);
+            int sourceImage = UseBestTextureSource(textureInfo);
+            
             if (sourceImage == -1)
             {
                 ReportError("ParseTexture", $"Texture {textureIndex} has no source. Returning an empty Texture.");
