@@ -1,7 +1,7 @@
 {
   "name": "io.github.vr-voyage.vrchat.glb-loader",
   "displayName": "Voyage 3D Model Loader",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Load 3D Models files like GLB/VRM at runtime.",
   "gitDependencies": {},
   "vpmDependencies": {
