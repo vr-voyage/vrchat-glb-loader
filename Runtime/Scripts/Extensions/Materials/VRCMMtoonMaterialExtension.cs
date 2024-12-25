@@ -31,7 +31,7 @@ public class VRCMMtoonMaterialExtension : MaterialExtensionHandler
     {
         new object[] {"transparentWithZWrite", null, "_TransparentWithZWrite", boolType, false},
         new object[] {"renderQueueOffsetNumber", null, "_RenderQueueOffset", floatType, 0, new object[] { -9, 9 } },
-        new object[] {"shaderColorFactor", null, "_ShadeColor", rgbType, new Color(1,1,1,1)},
+        new object[] {"shadeColorFactor", null, "_ShadeColor", rgbType, new Color(1,1,1,1)},
         new object[] {"shadeMultiplyTexture", null, "_ShadeTex", gltfTextureType},
         new object[] {"shadingShiftFactor", new string[] { "_MTOON_PARAMETERMAP" }, "_ShadingShiftFactor", floatType, 0.0},
         new object[] {"shadingToonyFactor", null, "_ShadingToonyFactor", floatType, 0.9, new object[] {0, 1}},

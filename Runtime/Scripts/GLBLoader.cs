@@ -1082,14 +1082,23 @@ namespace VoyageVoyage
                 m.uv = (Vector2[])uvsBuffer;
             }
 
+            
             if (indicesBuffer.GetType() == ushortArray)
             {
                 ushort[] indices = (ushort[])indicesBuffer;
+                if (indices.Length > 65535)
+                {
+                    m.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;
+                }
                 m.SetIndices(indices, MeshTopology.Triangles, 0);
             }
             else if (indicesBuffer.GetType() == intArray)
             {
                 int[] indices = (int[])indicesBuffer;
+                if (indices.Length > 65535)
+                {
+                    m.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;
+                }
                 m.SetIndices(indices, MeshTopology.Triangles, 0);
             }
 
