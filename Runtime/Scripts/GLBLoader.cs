@@ -1,5 +1,6 @@
 ﻿
 using System;
+using System.Reflection.Emit;
 using UdonSharp;
 using UnityEngine;
 using VRC.SDK3.Data;
@@ -44,6 +45,7 @@ namespace VoyageVoyage
         object[] m_imagesProperties;
         object[] m_samplerProperties;
         GameObject[] m_nodes;
+        object[] m_skins;
 
         const int errorValue = -2;
         const int sectionComplete = -1;
@@ -315,6 +317,11 @@ namespace VoyageVoyage
         void ReportInfo(string tag, string message)
         {
             Debug.Log($"<color=green>[{tag}] {message}</color>");
+        }
+
+        void ReportTime(string tag)
+        {
+            Debug.Log($"<color=green>[{tag}] {Time.realtimeSinceStartup}</color>");
         }
 
         public override void OnStringLoadSuccess(IVRCStringDownload result)
@@ -946,7 +953,6 @@ namespace VoyageVoyage
              */
 
             bool invertTriangles = (bool)options[invertTrianglesOptionIndex];
-
             switch (accessorComponentType)
             {
                 case 5126:
@@ -1037,6 +1043,8 @@ namespace VoyageVoyage
             parseOptions[rescaleOptionIndex] = true;
             parseOptions[scaleFactorOptionIndex] = new Vector3(-1, 1, 1);
 
+            ReportTime($"Get0");
+
             object positionsBuffer = GetAccessorBuffer(positionsAccessorIndex, parseOptions);
             if (positionsBuffer == null)
             {
@@ -1046,6 +1054,8 @@ namespace VoyageVoyage
 
             ResetAccessorBufferParseOptions(parseOptions);
             parseOptions[invertTrianglesOptionIndex] = true;
+
+            ReportTime($"Get1");
 
             object indicesBuffer = GetAccessorBuffer(indicesAccessorIndex, parseOptions);
             if (indicesBuffer == null)
@@ -1114,6 +1124,7 @@ namespace VoyageVoyage
         bool LoadMesh(DataDictionary meshInfo, out string name, out Mesh mesh, out int[] matIndices)
         {
             mesh = new Mesh();
+            ReportTime("LoadMesh");
             bool gotMeshInfo = GetMeshInfo(meshInfo, out name, out int nSubmeshes, out int[] submeshesInfo, out int[] materialsIndices);
             matIndices = materialsIndices;
             if (!gotMeshInfo)
@@ -1124,6 +1135,7 @@ namespace VoyageVoyage
 
             //ReportInfo("LoadMesh", $"$Mesh : {name} nSubmeshes : {nSubmeshes}");
 
+            ReportTime("LoadMesh-CombineInstances-Before");
             int indicesSum = 0;
             CombineInstance[] instances = new CombineInstance[nSubmeshes];
             for (int s = 0; s < nSubmeshes; s++)
@@ -1137,8 +1149,9 @@ namespace VoyageVoyage
             }
 
             mesh.indexFormat = (indicesSum < 65535) ? UnityEngine.Rendering.IndexFormat.UInt16 : UnityEngine.Rendering.IndexFormat.UInt32;
-
+            ReportTime("LoadMesh-CombineInstances-JustBeforeCall");
             mesh.CombineMeshes(instances, false);
+            ReportTime("LoadMesh-CombineInstances-After");
             mesh.name = name;
             return true;
         }
@@ -1222,6 +1235,11 @@ namespace VoyageVoyage
 
             for (int m = startFrom; m < nMeshes; m++)
             {
+                if ((m != startFrom) & (!StillHaveTime()))
+                {
+                    return m;
+                }
+
                 DataToken meshInfoToken = meshesList[m];
                 if (meshInfoToken.TokenType != TokenType.DataDictionary) continue;
 
@@ -1229,11 +1247,6 @@ namespace VoyageVoyage
                 if (!gotAMesh) continue;
 
                 meshesInfo[m] = new object[] { mesh, materialsIndices };
-                
-                if ((m != startFrom) & (!StillHaveTime()))
-                {
-                    return m;
-                }
             }
             return sectionComplete;
         }
@@ -2161,8 +2174,9 @@ namespace VoyageVoyage
 
         bool StillHaveTime()
         {
-            //ReportInfo("StillHaveTime", $"{Time.realtimeSinceStartup} < {limit}");
-            return Time.realtimeSinceStartup < limit;
+            bool stillHaveTime = Time.realtimeSinceStartup < limit;
+            ReportInfo("StillHaveTime", $"{stillHaveTime} : {Time.realtimeSinceStartup} < {limit}");
+            return stillHaveTime;
         }
 
         bool DidAnErrorHappened()
@@ -2379,9 +2393,15 @@ namespace VoyageVoyage
 
         }
 
+        int ParseSkins(int currentIndex)
+        {
+            // TODO
+            return sectionComplete;
+        }
+
         public void ParseGLB()
         {
-
+            ReportInfo("ParseGLB", "ParseGLB");
             if (!StillHaveTime())
             {
                 limit = Time.realtimeSinceStartup + Time.fixedDeltaTime / 2;
@@ -2393,45 +2413,63 @@ namespace VoyageVoyage
             {
                 case 0:
                     NotifyState("SceneLoading");
+                    ReportInfo("ParseGLB", "MainData");
                     currentIndex = ParseMainData(currentIndex);
                     break;
                 case 1:
+                    ReportInfo("ParseGLB", "JsonData");
                     currentIndex = ParseJsonData(currentIndex);
                     break;
                 case 2:
+                    ReportInfo("ParseGLB", "AssetData");
                     currentIndex = ParseAssetData(currentIndex);
                     break;
                 case 3:
+                    ReportInfo("ParseGLB", "BufferViews");
                     currentIndex = ParseBufferViews(currentIndex);
                     break;
                 case 4:
+                    ReportInfo("ParseGLB", "Accessors");
                     currentIndex = ParseAccessors(currentIndex);
                     break;
                 case 5:
+                    ReportInfo("ParseGLB", "Images");
                     currentIndex = ParseImages(currentIndex);
                     break;
                 case 6:
+                    ReportInfo("ParseGLB", "Samplers");
                     currentIndex = ParseSamplers(currentIndex);
                     break;
                 case 7:
+                    ReportInfo("ParseGLB", "Textures");
                     currentIndex = ParseTextures(currentIndex);
                     break;
                 case 8:
+                    ReportInfo("ParseGLB", "Materials");
                     currentIndex = ParseMaterials(currentIndex);
                     break;
-                case 9:
-                    currentIndex = ParseMeshes(currentIndex);
-                    break;
                 case 10:
-                    currentIndex = SpawnNodes(currentIndex);
+                    ReportInfo("ParseGLB", "Skins");
+                    currentIndex = ParseSkins(currentIndex);
                     break;
                 case 11:
-                    currentIndex = SetupNodes(currentIndex);
+                    ReportInfo("ParseGLB", "Meshes");
+                    currentIndex = ParseMeshes(currentIndex);
                     break;
                 case 12:
-                    currentIndex = SetupScenes(currentIndex);
+                    ReportInfo("ParseGLB", "SpawnNodes");
+                    currentIndex = SpawnNodes(currentIndex);
                     break;
                 case 13:
+                    ReportInfo("ParseGLB", "SetupNodes");
+                    currentIndex = SetupNodes(currentIndex);
+                    break;
+                case 14:
+                    ReportInfo("ParseGLB", "SetupScenes");
+                    currentIndex = SetupScenes(currentIndex);
+                    break;
+                case 15:
+                    ReportInfo("ParseGLB", "SelectScene");
                     currentIndex = SelectScene(currentIndex);
                     break;
                 default:
