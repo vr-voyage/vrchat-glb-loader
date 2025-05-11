@@ -11,7 +11,7 @@ public class HierarchyManager : UdonSharpBehaviour
     public void SceneLoaded()
     {
         SetOwnColliderState(true);
-        SetChildrenCollidersState(false);
+        //SetChildrenCollidersState(false);
         Transform t = transform;
         t.localPosition = Vector3.zero;
         t.localRotation = Quaternion.identity;
@@ -32,14 +32,14 @@ public class HierarchyManager : UdonSharpBehaviour
         }
     }
 
-    public void ChildrenColliderStateOn() => SetChildrenCollidersState(true);
-    public void ChildrenColliderStateOff() => SetChildrenCollidersState(false);
+    //public void ChildrenColliderStateOn() => SetChildrenCollidersState(true);
+    //public void ChildrenColliderStateOff() => SetChildrenCollidersState(false);
 
     public void SetOwnColliderState(bool state)
     {
         ownCollider.enabled = state;
     }
 
-    public void OwnColliderStateOn() => SetOwnColliderState(true);
-    public void OwnColliderStateOff() => SetOwnColliderState(false);
+    //public void OwnColliderStateOn() => SetOwnColliderState(true);
+    //public void OwnColliderStateOff() => SetOwnColliderState(false);
 }

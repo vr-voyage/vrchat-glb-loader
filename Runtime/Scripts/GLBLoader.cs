@@ -17,7 +17,9 @@ namespace VoyageVoyage
         
 
         public Transform mainParent;
-        public GameObject nodePrefab;
+        public GameObject emptyNodePrefab;
+        public GameObject meshNodePrefab;
+        public GameObject skinMeshNodePrefab;
 
         public MeshRenderer temporaryRenderer;
         public Material baseMaterial;
@@ -46,6 +48,7 @@ namespace VoyageVoyage
         object[] m_samplerProperties;
         GameObject[] m_nodes;
         object[] m_skins;
+        DataList m_skinsToSet;
 
         const int errorValue = -2;
         const int sectionComplete = -1;
@@ -97,6 +100,16 @@ namespace VoyageVoyage
         const int bufferViewFieldTarget = 4;
         const int bufferViewFieldsCount = 5;
 
+        const int meshInfoMeshIndex = 0;
+        const int meshInfoMeshMaterials = 1;
+
+        const int skinToSetNodeIndex = 0;
+        const int skinToSetSkinRefIndex = 1;
+
+        const int skinBonesTransformIndex = 0;
+        const int skinRootTransformIndex = 1;
+        const int skinBindPosesIndex = 2;
+
         const string voyageExtensionName = "EXT_voyage_exporter";
         const string msftExtensionName = "MSFT_texture_dds";
         const string invalidExtensionName = "Invalid extension\n";
@@ -119,6 +132,8 @@ namespace VoyageVoyage
             m_imagesProperties = new object[0];
             m_textures = new Texture2D[0];
             m_nodes = new GameObject[0];
+            m_skins = new object[0];
+            m_skinsToSet = new DataList();
 
             finished = false;
             limit = 0;
@@ -338,6 +353,7 @@ namespace VoyageVoyage
         void Start()
         {
             m_accessorTypesInfo = new DataDictionary();
+            m_accessorTypesInfo["MAT4"] = 16;
             m_accessorTypesInfo["VEC3"] = 3;
             m_accessorTypesInfo["VEC2"] = 2;
             m_accessorTypesInfo["SCALAR"] = 1;
@@ -709,13 +725,13 @@ namespace VoyageVoyage
         const int accessorCountIndex = 2;
         const int accessorTypeIndex = 3;
 
-        bool GetSubmeshInfo(DataDictionary primitives, out int positionsAccessor, out int normalsAccessor, out int uvsAccessor, out int indicesAccessor, out int materialIndex)
+        bool GetSubmeshInfo(
+            DataDictionary primitives,
+            int[] accessorsInfo,
+            int offset,
+            int[] materialsIndices,
+            int materialsIndicesOffset)
         {
-            positionsAccessor = -1;
-            normalsAccessor = -1;
-            uvsAccessor = -1;
-            indicesAccessor = -1;
-            materialIndex = -1;
 
             bool check = CheckFields(primitives, 
                 "attributes", TokenType.DataDictionary,
@@ -736,14 +752,13 @@ namespace VoyageVoyage
             }
 
 
-
-            positionsAccessor = (int)((double)attributes["POSITION"]);
-            normalsAccessor = DictOptInt(attributes, "NORMAL", -1);
-            indicesAccessor = (int)((double)primitives["indices"]);
-
-            uvsAccessor = DictOptInt(attributes, "TEXCOORD_0", -1);
-            //ReportInfo("GetSubmeshInfo", $"TEXCOORD_0 : {uvsView}");
-            materialIndex = DictOptInt(primitives, "material", -1);
+            accessorsInfo[offset + meshInfoPositionAccessorIndex] = (int)(double)attributes["POSITION"];
+            accessorsInfo[offset + meshInfoNormalsAccessorIndex] = DictOptInt(attributes, "NORMAL", -1);
+            accessorsInfo[offset + meshInfoUvsAccessorIndex] = DictOptInt(attributes, "TEXCOORD_0", -1);
+            accessorsInfo[offset + meshInfoIndicesAccessorIndex] = (int)(double)primitives["indices"];
+            accessorsInfo[offset + meshInfoBonesWeightsIndex] = DictOptInt(attributes, "WEIGHTS_0", -1);
+            accessorsInfo[offset + meshInfoBonesIndicesIndex] = DictOptInt(attributes, "JOINTS_0", -1);
+            materialsIndices[materialsIndicesOffset] = DictOptInt(primitives, "material", -1);
             return true;
         }
 
@@ -751,7 +766,11 @@ namespace VoyageVoyage
         const int meshInfoNormalsAccessorIndex = 1;
         const int meshInfoUvsAccessorIndex = 2;
         const int meshInfoIndicesAccessorIndex = 3;
-        const int meshInfoNIndices = 4;
+        const int meshInfoBonesWeightsIndex = 4;
+        const int meshInfoBonesIndicesIndex = 5;
+        const int meshInfoNIndices = 6;
+        
+        
         bool GetMeshInfo(DataDictionary meshInfo, out string name, out int meshes, out int[] views, out int[] materialsIndices)
         {
             name = DictOptString(meshInfo, "name", "_GLBLoader_AnonymousMesh");
@@ -785,22 +804,15 @@ namespace VoyageVoyage
                 }
                 bool parsedMeshInfo = GetSubmeshInfo(
                     (DataDictionary)meshInfoToken,
-                    out int positionsView,
-                    out int normalsView,
-                    out int uvsView,
-                    out int indicesView,
-                    out int materialIndex);
+                    views,
+                    v,
+                    materialsIndices,
+                    m);
                 if (!parsedMeshInfo)
                 {
                     continue;
                 }
 
-                views[v + meshInfoPositionAccessorIndex] = positionsView;
-                views[v + meshInfoNormalsAccessorIndex] = normalsView;
-                views[v + meshInfoUvsAccessorIndex] = uvsView;
-                views[v + meshInfoIndicesAccessorIndex] = indicesView;
-                materialsIndices[m] = materialIndex;
-                //ReportInfo("GetMeshInfo", $"{name} : Mesh {m} - {positionsView},{normalsView},{uvsView},{indicesView},{materialIndex}");
                 v += meshInfoNIndices;
                 actualNumberOfMeshes += 1;
             }
@@ -1025,10 +1037,10 @@ namespace VoyageVoyage
             return ParseAccessorBuffer(accessor, options);
         }
 
-        System.Type vector3Array = typeof(Vector3[]);
-        System.Type ushortArray = typeof(ushort[]);
-        System.Type vector2Array = typeof(Vector2[]);
-        System.Type intArray = typeof(int[]);
+        readonly Type vector3Array = typeof(Vector3[]);
+        readonly Type ushortArray = typeof(ushort[]);
+        readonly Type vector2Array = typeof(Vector2[]);
+        readonly Type intArray = typeof(int[]);
 
         Mesh LoadMeshFrom(int[] meshInfo, int startOffset)
         {
@@ -1246,6 +1258,8 @@ namespace VoyageVoyage
                 bool gotAMesh = LoadMesh((DataDictionary)meshInfoToken, out string name, out Mesh mesh, out int[] materialsIndices);
                 if (!gotAMesh) continue;
 
+                Debug.Log($"Adding mesh : {name}");
+
                 meshesInfo[m] = new object[] { mesh, materialsIndices };
             }
             return sectionComplete;
@@ -1295,28 +1309,21 @@ namespace VoyageVoyage
             return true;
         }
 
-        void SetupMesh(GameObject node, int meshIndex, int maxMeshIndex)
+        bool GetMeshInfo(int meshIndex, int maxMeshIndex, out object[] meshInfo)
         {
-            if ((meshIndex < 0) | (meshIndex > maxMeshIndex)) return;
+            meshInfo = null;
+            if ((meshIndex < 0) | (meshIndex > maxMeshIndex)) return false;
             object meshInfoArray = m_meshesInfo[meshIndex];
-            if (meshInfoArray == null) return;
+            if (meshInfoArray == null) return false;
 
-            object[] meshInfo = (object[])m_meshesInfo[meshIndex];
-            if (meshInfo == null) return;
+            meshInfo = (object[])m_meshesInfo[meshIndex];
+            if (meshInfo == null) return false;
 
-            // FIXME Magic values
-            Mesh mesh = (Mesh)meshInfo[0];
-            int[] materialsIndices = (int[])meshInfo[1];
+            return true;            
+        }
 
-            if (mesh == null) return;
-            mesh.RecalculateBounds();
-
-            MeshFilter filter = node.GetComponent<MeshFilter>();
-            filter.sharedMesh = mesh;
-
-            if (materialsIndices == null) return;
-            MeshRenderer renderer = filter.GetComponent<MeshRenderer>();
-
+        Material[] PrepareRendererMaterials(int[] materialsIndices)
+        {
             int nIndices = materialsIndices.Length;
             int nKnownMaterials = m_materials.Length;
 
@@ -1334,14 +1341,68 @@ namespace VoyageVoyage
                     sharedMaterials[sharedMatIndex] = NewMaterial(baseMaterial);
                 }
             }
-            renderer.sharedMaterials = sharedMaterials;
+            return sharedMaterials;
+        }
 
-            BoxCollider boxCollider = node.GetComponent<BoxCollider>();
+        void SetupSkinMesh(GameObject node, int meshIndex, int maxMeshIndex)
+        {
+            bool gotMesh = GetMeshInfo(meshIndex, maxMeshIndex, out object[] meshInfo);
+            if (!gotMesh) return;
+
+            Mesh mesh = (Mesh)meshInfo[meshInfoMeshIndex];
+            int[] materialsIndices = (int[])meshInfo[meshInfoMeshMaterials];
+
+            SkinnedMeshRenderer skinnedMeshRenderer = node.GetComponent<SkinnedMeshRenderer>();
+            if (skinnedMeshRenderer == null) return;
+
+            skinnedMeshRenderer.sharedMesh = mesh;
+            skinnedMeshRenderer.bounds = mesh.bounds;
+            mesh.RecalculateBounds();
+
+            Material[] sharedMaterials = PrepareRendererMaterials(materialsIndices);
+
+            skinnedMeshRenderer.sharedMaterials = PrepareRendererMaterials(materialsIndices);
+
+        }
+
+        void SetupMesh(GameObject node, int meshIndex, int maxMeshIndex)
+        {
+            bool gotMesh = GetMeshInfo(meshIndex, maxMeshIndex, out object[] meshInfo);
+            if (!gotMesh) return;
+
+            Mesh mesh = (Mesh)meshInfo[meshInfoMeshIndex];
+            int[] materialsIndices = (int[])meshInfo[meshInfoMeshMaterials];
+
+            if (mesh == null) return;
+            mesh.RecalculateBounds();
+
+            MeshFilter filter = node.GetComponent<MeshFilter>();
+            filter.sharedMesh = mesh;
+
+            if (materialsIndices == null) return;
+            MeshRenderer renderer = filter.GetComponent<MeshRenderer>();
+
+            renderer.sharedMaterials = PrepareRendererMaterials(materialsIndices); ;
+
+            /*BoxCollider boxCollider = node.GetComponent<BoxCollider>();
             Vector3 center = renderer.bounds.center;
             center.x *= -1;
             center.z *= -1;
             boxCollider.center = center;
-            boxCollider.size = renderer.bounds.size;
+            boxCollider.size = renderer.bounds.size;*/
+        }
+
+        GameObject InstantiateNode(DataDictionary nodeDictionary, Transform mainParent)
+        {
+            if (nodeDictionary.ContainsKey("skin"))
+            {
+                return Instantiate(skinMeshNodePrefab, mainParent);
+            }
+            if (nodeDictionary.ContainsKey("mesh"))
+            {
+                return Instantiate(meshNodePrefab, mainParent);
+            }
+            return Instantiate(emptyNodePrefab, mainParent);
         }
 
         int SpawnNodes(int startFrom)
@@ -1375,7 +1436,14 @@ namespace VoyageVoyage
                 {
                     return n;
                 }
-                nodesObjects[n] = Instantiate(nodePrefab, mainParent);
+                DataToken nodeDictionaryToken = nodesList[n];
+                if (nodeDictionaryToken.TokenType != TokenType.DataDictionary)
+                {
+                    nodesObjects[n] = Instantiate(emptyNodePrefab, mainParent);
+                    continue;
+                }
+                nodesObjects[n] = InstantiateNode((DataDictionary)nodeDictionaryToken, mainParent);
+                //nodesObjects[n] = Instantiate(nodePrefab, mainParent);
             }
 
             return sectionComplete;
@@ -1414,13 +1482,31 @@ namespace VoyageVoyage
                 }
                 DataToken nodeToken = nodesList[n];
                 if (nodeToken.TokenType != TokenType.DataDictionary) continue;
-                ParseNode((DataDictionary)nodeToken, out int meshIndex, out string name, out Vector3 position, out Quaternion rotation, out Vector3 scale, out int[] children);
+                DataDictionary nodeDictionary = (DataDictionary)nodeToken;
+                ParseNode(nodeDictionary, out int meshIndex, out string name, out Vector3 position, out Quaternion rotation, out Vector3 scale, out int[] children);
 
                 GameObject node = nodesObjects[n];
 
-                SetupMesh(node, meshIndex, maxMeshIndex);
+                
+                if (meshIndex >= 0)
+                {
+                    int skinIndex = DictOptInt(nodeDictionary, "skin", -1);
+                    if (skinIndex < 0)
+                    {
+                        SetupMesh(node, meshIndex, maxMeshIndex);
+                        
+                    }
+                    else
+                    {
+                        
+                        SetupSkinMesh(node, meshIndex, maxMeshIndex);
+                        m_skinsToSet.Add(new DataToken(new object[] { node, skinIndex }));
+                    }
+                }
+                
 
-                node.name = name;
+
+                    node.name = name;
 
                 position.x *= -1;
                 rotation = new Quaternion(-rotation.x, rotation.y, rotation.z, -rotation.w);
@@ -1462,7 +1548,6 @@ namespace VoyageVoyage
         // Shamelessly stolen from https://forum.unity.com/threads/standard-material-shader-ignoring-setfloat-property-_mode.344557/
         public static void MaterialSetAsFade(Material material)
         {
-            Debug.Log($"Setting material {material.name} as Transparent");
             material.SetOverrideTag("RenderType", "Transparent");
             material.DisableKeyword("_ALPHATEST_ON");
             material.EnableKeyword("_ALPHABLEND_ON");
@@ -1475,7 +1560,6 @@ namespace VoyageVoyage
 
         public static void MaterialSetAsCutout(Material material, float threshold)
         {
-            Debug.Log("Setting material as Cutout !");
             material.SetOverrideTag("RenderType", "TransparentCutout");
             material.SetFloat("_Cutoff", threshold);
             material.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.One);
@@ -2175,7 +2259,7 @@ namespace VoyageVoyage
         bool StillHaveTime()
         {
             bool stillHaveTime = Time.realtimeSinceStartup < limit;
-            ReportInfo("StillHaveTime", $"{stillHaveTime} : {Time.realtimeSinceStartup} < {limit}");
+            //ReportInfo("StillHaveTime", $"{stillHaveTime} : {Time.realtimeSinceStartup} < {limit}");
             return stillHaveTime;
         }
 
@@ -2393,9 +2477,202 @@ namespace VoyageVoyage
 
         }
 
+        object[] ParseSkin(DataDictionary skinDictionary, int currentSkinIndex)
+        {
+            bool gotJoints = skinDictionary.TryGetValue("joints", TokenType.DataList, out DataToken jointsToken);
+            if (!gotJoints)
+            {
+                return null;
+            }
+
+            DataList jointsList = (DataList)jointsToken;
+            int nJoints = jointsList.Count;
+
+            if (!IsListComponentType(jointsList, TokenType.Double))
+            {
+                ReportError("ParseSkin", $"Skin {currentSkinIndex} joints has invalid indices !");
+                return null;
+            }
+
+            Transform[] boneTransforms = new Transform[nJoints];
+            GameObject[] nodes = m_nodes;
+            int nNodes = nodes.Length;
+
+            if (nJoints < 1)
+            {
+                ReportError("ParseSkin", $"Invalid Skin {currentSkinIndex} : Skins require at least 1 joint !");
+                return null;
+            }
+
+            for (int listIndex = 0; listIndex < nJoints; listIndex++)
+            {
+                int jointIndex = (int)(double)jointsList[listIndex];
+                if ((jointIndex < 0) | (jointIndex > nNodes))
+                {
+                    ReportError("ParseSkin", $"Skin {currentSkinIndex} has an invalid joint index {jointIndex} ([{listIndex}]). Aborting skin parsing");
+                    return null;
+                }
+                GameObject node = nodes[jointIndex];
+                if (node == null)
+                {
+                    ReportError("ParseSkin", $"Skin {currentSkinIndex} : Node {jointIndex} is NULL !? Aborting");
+                    return null;
+                }
+                boneTransforms[listIndex] = node.transform;
+            }
+
+            int rootTransformIndex = DictOptInt(skinDictionary, "skeleton", (int)(double)jointsList[0]);
+            if ((rootTransformIndex < 0) | (rootTransformIndex >= nNodes))
+            {
+                ReportError("ParseSkin", $"Skin {currentSkinIndex} : Skeleton points to invalid node {rootTransformIndex}");
+                return null;
+            }
+            Transform rootTransform = m_nodes[rootTransformIndex].transform;
+
+            int bindPoseAccessorIndex = DictOptInt(skinDictionary, "inverseBindMatrices", -1);
+
+            Matrix4x4[] bindPoses = null;
+
+            if (bindPoseAccessorIndex >= 0)
+            {
+                object parsedBindPoses = GetAccessorBuffer(bindPoseAccessorIndex, AccessorBufferParseOptions());
+                Type bindPosesType = parsedBindPoses.GetType();
+                if (bindPosesType == typeof(Matrix4x4[]))
+                {
+                    bindPoses = (Matrix4x4[])parsedBindPoses;
+                    
+                }
+                else
+                {
+                    ReportError("ParseSkin", $"Skin {currentSkinIndex} : Trying to retrieve data at accessor {bindPoseAccessorIndex} led to a {bindPosesType.Name} instead of Matrix4x4[]");
+                }
+            }
+
+            if (bindPoses == null)
+            {
+                bindPoses = new Matrix4x4[nJoints];
+                for (int i = 0; i < nJoints; i++)
+                {
+                    bindPoses[i] = Matrix4x4.identity;
+                }
+            }
+
+            return new object[] { boneTransforms, rootTransform, bindPoses };
+        }
+
         int ParseSkins(int currentIndex)
         {
-            // TODO
+
+            if (glbJson == null)
+            {
+                return errorValue;
+            }
+            if (currentIndex == 0)
+            {
+                bool hasSkins = glbJson.TryGetValue("skins", TokenType.DataList, out DataToken texturesListToken);
+                if (!hasSkins)
+                {
+                    m_skins = new object[0];
+                    return sectionComplete;
+                }
+            }
+
+            DataList skinsList = (DataList)glbJson["skins"];
+            int nSkins = skinsList.Count;
+
+            if (currentIndex == 0)
+            {
+                m_skins = new object[nSkins];
+            }
+
+            object[] skins = m_skins;
+            for (int i = currentIndex; i < nSkins; i++)
+            {
+                if ((i != currentIndex) & (!StillHaveTime()))
+                {
+                    return i;
+                }
+                DataToken skinToken = skinsList[i];
+                if (skinToken.TokenType != TokenType.DataDictionary) { continue; }
+                object skin = ParseSkin((DataDictionary)skinToken, i);
+                skins[i] = skin;
+            }
+            return sectionComplete;
+        }
+
+        void ApplySkinFor(object skinToSetInfoRaw, object[] parsedSkins)
+        {
+            if (skinToSetInfoRaw == null)
+            {
+                return;
+            }
+
+            object[] setInfo = (object[])skinToSetInfoRaw;
+            if (setInfo.Length < 2)
+            {
+                return;
+            }
+            GameObject node = (GameObject)setInfo[skinToSetNodeIndex];
+            int skinIndex = (int)setInfo[skinToSetSkinRefIndex];
+
+            if (node == null)
+            {
+                return;
+            }
+            if (skinIndex > parsedSkins.Length)
+            {
+                ReportError("ApplySkins", $"Invalid Skin index {skinIndex}");
+                return;
+            }
+
+            object[] skinInfo = (object[])parsedSkins[skinIndex];
+            if (skinInfo == null)
+            {
+                ReportError("ApplySkins", $"Skin {skinIndex} was not parsed correctly");
+                return;
+            }
+
+            Transform[] boneTransforms = (Transform[])skinInfo[skinBonesTransformIndex];
+            Transform rootTranform = (Transform)skinInfo[skinRootTransformIndex];
+            Matrix4x4[] bindPoses = (Matrix4x4[])skinInfo[skinBindPosesIndex];
+
+            SkinnedMeshRenderer skinnedMeshRenderer = node.GetComponent<SkinnedMeshRenderer>();
+            if (skinnedMeshRenderer == null)
+            {
+                ReportError("ApplySkins", $"No Skin Mesh Renderer on {node.name} referencing skin {skinIndex}");
+                return;
+            }
+
+            Mesh sharedMesh = skinnedMeshRenderer.sharedMesh;
+            if (sharedMesh == null)
+            {
+                ReportError("ApplySkins", $"No Mesh on {node.name}");
+                return;
+            }
+
+            skinnedMeshRenderer.bones = boneTransforms;
+            skinnedMeshRenderer.rootBone = rootTranform;
+            sharedMesh.bindposes = bindPoses;
+        }
+
+        int ApplySkins(int currentIndex)
+        {
+            object[] skinsInfo = m_skins;
+            int nSkinsToApply = m_skinsToSet.Count;
+            int nSkins = skinsInfo.Length;
+            for (int i = currentIndex; i < nSkinsToApply; i++)
+            {
+                if ((i != currentIndex) & (!StillHaveTime()))
+                {
+                    return i;
+                }
+                if (m_skinsToSet.TryGetValue(i, TokenType.Reference, out DataToken skinToSetToken))
+                {
+                    ApplySkinFor(skinToSetToken.Reference, skinsInfo);
+                }
+                
+            }
+
             return sectionComplete;
         }
 
@@ -2448,21 +2725,25 @@ namespace VoyageVoyage
                     ReportInfo("ParseGLB", "Materials");
                     currentIndex = ParseMaterials(currentIndex);
                     break;
-                case 10:
-                    ReportInfo("ParseGLB", "Skins");
-                    currentIndex = ParseSkins(currentIndex);
-                    break;
-                case 11:
+                case 9:
                     ReportInfo("ParseGLB", "Meshes");
                     currentIndex = ParseMeshes(currentIndex);
                     break;
-                case 12:
+                case 10:
                     ReportInfo("ParseGLB", "SpawnNodes");
                     currentIndex = SpawnNodes(currentIndex);
                     break;
-                case 13:
+                case 11:
                     ReportInfo("ParseGLB", "SetupNodes");
                     currentIndex = SetupNodes(currentIndex);
+                    break;
+                case 12:
+                    ReportInfo("ParseGLB", "ParseSkins");
+                    currentIndex = ParseSkins(currentIndex);
+                    break;
+                case 13:
+                    ReportInfo("ParseGLB", "ApplySkins");
+                    currentIndex = ApplySkins(currentIndex);
                     break;
                 case 14:
                     ReportInfo("ParseGLB", "SetupScenes");
@@ -2479,6 +2760,9 @@ namespace VoyageVoyage
             }
 
             TriggerNextIteration();
+
+            // TODO : Parse Bones Weights and Indices
+
             //ReportInfo("ParseGLB", $"Iteration ended at {Time.realtimeSinceStartup}");
 
             //m_bufferViews = ParseBufferViews((DataList)glbJsonRoot["bufferViews"], glb, cursor);

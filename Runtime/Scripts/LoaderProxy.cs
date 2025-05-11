@@ -51,7 +51,7 @@ namespace VoyageVoyage
             newLoader.stateReceivers = new UdonSharpBehaviour[] { panel, glbHierarchyManager, assetInfoPanel };
         }
 
-        public void OwnColliderStateOn()
+        /*public void OwnColliderStateOn()
         {
             glbHierarchyManager.OwnColliderStateOn();
         }
@@ -69,7 +69,7 @@ namespace VoyageVoyage
         public void ChildrenColliderStateOff()
         {
             glbHierarchyManager.ChildrenColliderStateOff();
-        }
+        }*/
 
         void StartDownload()
         {
