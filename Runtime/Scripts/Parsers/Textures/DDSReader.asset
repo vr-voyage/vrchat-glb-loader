@@ -12,7 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: c333ccfdd0cbdbc4ca30cef2dd6e6b9b, type: 3}
   m_Name: DDSReader
   m_EditorClassIdentifier: 
-  serializedUdonProgramAsset: {fileID: 11400000, guid: bb64f1ed1a8ab6d47aaf1d07ae7508f0,
+  serializedUdonProgramAsset: {fileID: 11400000, guid: f6ff289c53495cf42972d1e57257cb8f,
     type: 2}
   udonAssembly: 
   assemblyError: 

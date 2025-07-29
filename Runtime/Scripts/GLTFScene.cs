@@ -18,4 +18,14 @@ public class GLTFScene : UdonSharpBehaviour
             go.SetActive(true);
         }
     }
+
+    public void Hide()
+    {
+        if (nodes == null) { return; }
+        foreach (GameObject go in nodes)
+        {
+            if (go == null) { continue; }
+            go.SetActive(false);
+        }
+    }
 }

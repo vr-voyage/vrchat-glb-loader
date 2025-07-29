@@ -12,7 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: c333ccfdd0cbdbc4ca30cef2dd6e6b9b, type: 3}
   m_Name: LoaderProxy
   m_EditorClassIdentifier: 
-  serializedUdonProgramAsset: {fileID: 11400000, guid: 8adce5eb2c6f7ce419f712ffdcc8f748,
+  serializedUdonProgramAsset: {fileID: 11400000, guid: ff0c39236acbaaa4aaa96e82be6d07d3,
     type: 2}
   udonAssembly: 
   assemblyError: 

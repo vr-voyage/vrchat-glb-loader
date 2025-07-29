@@ -1,5 +1,6 @@
 ﻿
 using System;
+using System.Diagnostics.Eventing.Reader;
 using UdonSharp;
 using UnityEngine;
 using VRC.SDK3.Data;
@@ -100,6 +101,11 @@ namespace VoyageVoyage
         const string invalidExtensionName = "Invalid extension\n";
         const string ddsMimeType = "image/vnd-ms.dds";
 
+        Type ushortArrayType = typeof(ushort[]);
+        Type intArrayType = typeof(int[]);
+        Type vector2ArrayType = typeof(Vector2[]);
+        Type vector3ArrayType = typeof(Vector3[]);
+        Type vector4ArrayType = typeof(Vector4[]);
 
         void ResetState()
         {
@@ -331,6 +337,8 @@ namespace VoyageVoyage
         void Start()
         {
             m_accessorTypesInfo = new DataDictionary();
+            m_accessorTypesInfo["MAT4"] = 16;
+            m_accessorTypesInfo["VEC4"] = 4;
             m_accessorTypesInfo["VEC3"] = 3;
             m_accessorTypesInfo["VEC2"] = 2;
             m_accessorTypesInfo["SCALAR"] = 1;
@@ -520,6 +528,25 @@ namespace VoyageVoyage
             return ret;
         }
 
+        Vector4[] FloatsToVector4(float[] floats, int nFloats, int byteStride)
+        {
+            int floatStride = 4;
+            if (byteStride > 16)
+            {
+                floatStride = byteStride / 4;
+            }
+            int nVectors = nFloats / 4;
+            Vector4[] ret = new Vector4[nVectors];
+            for (int v = 0, f = 0; v < nVectors; v++, f += floatStride)
+            {
+                ret[v].x = floats[f + 0];
+                ret[v].y = floats[f + 1];
+                ret[v].z = floats[f + 2];
+                ret[v].w = floats[f + 3];
+            }
+            return ret;
+        }
+
         Vector3[] RescaleVector3(Vector3[] vectors, Vector3 scale)
         {
             int nVectors = vectors.Length;
@@ -702,13 +729,20 @@ namespace VoyageVoyage
         const int accessorCountIndex = 2;
         const int accessorTypeIndex = 3;
 
-        bool GetSubmeshInfo(DataDictionary primitives, out int positionsAccessor, out int normalsAccessor, out int uvsAccessor, out int indicesAccessor, out int materialIndex)
+        const int uvTypeInvalid = 1;
+        const int uvType2d = 2;
+        const int uvType3d = 3;
+        const int uvType4d = 4;
+        const int nMaxUvLayers = 8;
+
+        bool GetSubmeshInfo(
+            DataDictionary primitives,
+            object[] accessorsInfo,
+            int offset,
+            int[] materialsIndices,
+            int materialsIndicesOffset)
         {
-            positionsAccessor = -1;
-            normalsAccessor = -1;
-            uvsAccessor = -1;
-            indicesAccessor = -1;
-            materialIndex = -1;
+
 
             bool check = CheckFields(primitives, 
                 "attributes", TokenType.DataDictionary,
@@ -730,13 +764,45 @@ namespace VoyageVoyage
 
 
 
-            positionsAccessor = (int)((double)attributes["POSITION"]);
-            normalsAccessor = DictOptInt(attributes, "NORMAL", -1);
-            indicesAccessor = (int)((double)primitives["indices"]);
+            accessorsInfo[offset + meshInfoPositionAccessorIndex] = (int)(double)attributes["POSITION"];
+            accessorsInfo[offset + meshInfoNormalsAccessorIndex] = DictOptInt(attributes, "NORMAL", -1);
+            accessorsInfo[offset + meshInfoIndicesAccessorIndex] = (int)(double)primitives["indices"];
+            //accessorsInfo[offset + meshInfoBonesWeightsIndex] = DictOptInt(attributes, "WEIGHTS_0", -1);
+            //accessorsInfo[offset + meshInfoBonesIndicesIndex] = DictOptInt(attributes, "JOINTS_0", -1);
+            object[] uvAccessorsInfo = new object[nMaxUvLayers * 2];
+            accessorsInfo[offset + meshInfoUvsAccessorIndex] = uvAccessorsInfo;
 
-            uvsAccessor = DictOptInt(attributes, "TEXCOORD_0", -1);
-            //ReportInfo("GetSubmeshInfo", $"TEXCOORD_0 : {uvsView}");
-            materialIndex = DictOptInt(primitives, "material", -1);
+            for (int i = 0, layer = 0; i < nMaxUvLayers; i += 2, layer++)
+            {
+                uvAccessorsInfo[i] = DictOptInt(attributes, $"TEXCOORD_{layer}", -1);
+                uvAccessorsInfo[i + 1] = vector2ArrayType;
+            }
+
+            for (int i = 0, layer = 0; i < nMaxUvLayers; i += 2, layer++)
+            {
+                int currentAccessor = (int)uvAccessorsInfo[i];
+                int newAccessor = DictOptInt(attributes, $"_TEXCOORD_3D_{layer}", currentAccessor);
+                if (currentAccessor != newAccessor)
+                {
+                    uvAccessorsInfo[i] = newAccessor;
+                    uvAccessorsInfo[i + 1] = vector3ArrayType;
+                }
+            }
+
+            for (int i = 0, layer = 0; i < nMaxUvLayers; i += 2, layer++)
+            {
+                int currentAccessor = (int)uvAccessorsInfo[i];
+                int newAccessor = DictOptInt(attributes, $"_TEXCOORD_4D_{layer}", currentAccessor);
+                
+                if (currentAccessor != newAccessor)
+                {
+                    uvAccessorsInfo[i] = newAccessor;
+                    uvAccessorsInfo[i + 1] = vector4ArrayType;
+                }
+                    
+            }
+
+            materialsIndices[materialsIndicesOffset] = DictOptInt(primitives, "material", -1);
             return true;
         }
 
@@ -745,11 +811,11 @@ namespace VoyageVoyage
         const int meshInfoUvsAccessorIndex = 2;
         const int meshInfoIndicesAccessorIndex = 3;
         const int meshInfoNIndices = 4;
-        bool GetMeshInfo(DataDictionary meshInfo, out string name, out int meshes, out int[] views, out int[] materialsIndices)
+        bool GetMeshInfo(DataDictionary meshInfo, out string name, out int meshes, out object[] views, out int[] materialsIndices)
         {
             name = DictOptString(meshInfo, "name", "_GLBLoader_AnonymousMesh");
             meshes = 0;
-            views = new int[0];
+            views = new object[0];
             materialsIndices = new int[0];
 
             bool check = CheckFields(
@@ -766,7 +832,8 @@ namespace VoyageVoyage
             int actualNumberOfMeshes = 0;
             
             // 4 type of views info : position, normals, uv, indices
-            views = new int[nMeshes * meshInfoNIndices];
+            views = new object[nMeshes * meshInfoNIndices];
+            
             materialsIndices = new int[nMeshes];
             int v = 0;
             for (int m = 0; m < nMeshes; m++)
@@ -778,21 +845,15 @@ namespace VoyageVoyage
                 }
                 bool parsedMeshInfo = GetSubmeshInfo(
                     (DataDictionary)meshInfoToken,
-                    out int positionsView,
-                    out int normalsView,
-                    out int uvsView,
-                    out int indicesView,
-                    out int materialIndex);
+                    views,
+                    v,
+                    materialsIndices,
+                    m);
                 if (!parsedMeshInfo)
                 {
                     continue;
                 }
 
-                views[v + meshInfoPositionAccessorIndex] = positionsView;
-                views[v + meshInfoNormalsAccessorIndex] = normalsView;
-                views[v + meshInfoUvsAccessorIndex] = uvsView;
-                views[v + meshInfoIndicesAccessorIndex] = indicesView;
-                materialsIndices[m] = materialIndex;
                 //ReportInfo("GetMeshInfo", $"{name} : Mesh {m} - {positionsView},{normalsView},{uvsView},{indicesView},{materialIndex}");
                 v += meshInfoNIndices;
                 actualNumberOfMeshes += 1;
@@ -820,6 +881,10 @@ namespace VoyageVoyage
 
                 case "VEC3":
                     buffer = FloatsToVector3((float[])buffer, nFloats, stride);
+                    break;
+
+                case "VEC4":
+                    buffer = FloatsToVector4((float[])buffer, nFloats, stride);
                     break;
 
                 case "MAT4":
@@ -1019,19 +1084,14 @@ namespace VoyageVoyage
             return ParseAccessorBuffer(accessor, options);
         }
 
-        System.Type vector3Array = typeof(Vector3[]);
-        System.Type ushortArray = typeof(ushort[]);
-        System.Type vector2Array = typeof(Vector2[]);
-        System.Type intArray = typeof(int[]);
-
-        Mesh LoadMeshFrom(int[] meshInfo, int startOffset)
+        Mesh LoadMeshFrom(object[] meshInfo, int startOffset)
         {
             Mesh m = new Mesh();
 
-            int positionsAccessorIndex = meshInfo[startOffset + meshInfoPositionAccessorIndex];
-            int normalsAccessorIndex = meshInfo[startOffset + meshInfoNormalsAccessorIndex];
-            int uvsAccessorIndex = meshInfo[startOffset + meshInfoUvsAccessorIndex];
-            int indicesAccessorIndex = meshInfo[startOffset + meshInfoIndicesAccessorIndex];
+            int positionsAccessorIndex = (int) meshInfo[startOffset + meshInfoPositionAccessorIndex];
+            int normalsAccessorIndex = (int) meshInfo[startOffset + meshInfoNormalsAccessorIndex];
+            object[] uvsAccessorsIndices = (object[]) meshInfo[startOffset + meshInfoUvsAccessorIndex];
+            int indicesAccessorIndex = (int)meshInfo[startOffset + meshInfoIndicesAccessorIndex];
 
             object[] parseOptions = AccessorBufferParseOptions();
             parseOptions[rescaleOptionIndex] = true;
@@ -1055,7 +1115,7 @@ namespace VoyageVoyage
             }
 
 
-            if ((positionsBuffer.GetType() != vector3Array) | ((indicesBuffer.GetType() != ushortArray) && (indicesBuffer.GetType() != intArray)))
+            if ((positionsBuffer.GetType() != vector3ArrayType) | ((indicesBuffer.GetType() != ushortArrayType) && (indicesBuffer.GetType() != intArrayType)))
             {
                 ReportError("LoadMesh", $"Some buffer views types are invalid : {positionsBuffer.GetType()}, {indicesBuffer.GetType()}");
                 return m;
@@ -1067,23 +1127,35 @@ namespace VoyageVoyage
             parseOptions[rescaleOptionIndex] = true;
             parseOptions[scaleFactorOptionIndex] = new Vector3(-1, 1, 1);
             object normalsBuffer = GetAccessorBuffer(normalsAccessorIndex, parseOptions);
-            if (normalsBuffer != null && normalsBuffer.GetType() == vector3Array)
+            if (normalsBuffer != null && normalsBuffer.GetType() == vector3ArrayType)
             {
                 m.normals = (Vector3[])normalsBuffer;
             }
 
             ResetAccessorBufferParseOptions(parseOptions);
-            object uvsBuffer = GetAccessorBuffer(uvsAccessorIndex, parseOptions);
 
-            //ReportInfo("LoadMeshFrom", "Got an accessor !");
-            if (uvsBuffer != null && uvsBuffer.GetType() == vector2Array)
+            for (int i = 0, uvChannel = 0; i < nMaxUvLayers; uvChannel++, i += 2)
             {
-                //ReportInfo("LoadMeshFrom", "Setting up the UVS !");
-                m.uv = (Vector2[])uvsBuffer;
-            }
+                int uvsAccessorIndex = (int)uvsAccessorsIndices[i];
+                if (uvsAccessorIndex == -1) { continue; }
+                Type expectedType = (Type)uvsAccessorsIndices[i + 1];
+                if (expectedType == null) { continue; }
 
+                object uvsBuffer = GetAccessorBuffer(uvsAccessorIndex, parseOptions);
+
+                //ReportInfo("LoadMeshFrom", "Got an accessor !");
+                if (uvsBuffer == null || uvsBuffer.GetType() != expectedType)
+                {
+                    continue;
+                }
+
+                if (expectedType == vector2ArrayType) { m.SetUVs(uvChannel, (Vector2[])uvsBuffer); }
+                else if (expectedType == vector3ArrayType) { m.SetUVs(uvChannel, (Vector3[])uvsBuffer); }
+                else if (expectedType == vector4ArrayType) { m.SetUVs(uvChannel, (Vector4[])uvsBuffer); }
+
+            }
             
-            if (indicesBuffer.GetType() == ushortArray)
+            if (indicesBuffer.GetType() == ushortArrayType)
             {
                 ushort[] indices = (ushort[])indicesBuffer;
                 if (indices.Length > 65535)
@@ -1092,7 +1164,7 @@ namespace VoyageVoyage
                 }
                 m.SetIndices(indices, MeshTopology.Triangles, 0);
             }
-            else if (indicesBuffer.GetType() == intArray)
+            else if (indicesBuffer.GetType() == intArrayType)
             {
                 int[] indices = (int[])indicesBuffer;
                 if (indices.Length > 65535)
@@ -1114,7 +1186,7 @@ namespace VoyageVoyage
         bool LoadMesh(DataDictionary meshInfo, out string name, out Mesh mesh, out int[] matIndices)
         {
             mesh = new Mesh();
-            bool gotMeshInfo = GetMeshInfo(meshInfo, out name, out int nSubmeshes, out int[] submeshesInfo, out int[] materialsIndices);
+            bool gotMeshInfo = GetMeshInfo(meshInfo, out name, out int nSubmeshes, out object[] submeshesInfo, out int[] materialsIndices);
             matIndices = materialsIndices;
             if (!gotMeshInfo)
             {
@@ -1323,12 +1395,12 @@ namespace VoyageVoyage
             }
             renderer.sharedMaterials = sharedMaterials;
 
-            BoxCollider boxCollider = node.GetComponent<BoxCollider>();
+            /*BoxCollider boxCollider = node.GetComponent<BoxCollider>();
             Vector3 center = renderer.bounds.center;
             center.x *= -1;
             center.z *= -1;
             boxCollider.center = center;
-            boxCollider.size = renderer.bounds.size;
+            boxCollider.size = renderer.bounds.size;*/
         }
 
         int SpawnNodes(int startFrom)
@@ -1622,7 +1694,6 @@ namespace VoyageVoyage
             if (materialInfo.TryGetValue("extensions", TokenType.DataDictionary, out DataToken extensionsDictToken))
             {
                 DataDictionary extensionsDict = (DataDictionary)extensionsDictToken;
-                ReportInfo("CreateMaterialFrom", "Handling extensions");
 
                 int nHandledExtensions = extensionsHandledWithPlugins.Length;
 
@@ -1848,8 +1919,14 @@ namespace VoyageVoyage
             TextureFormat textureFormat;
             switch (formatInfo)
             {
+                case "RGBA8":
+                    textureFormat = TextureFormat.RGBA32;
+                    break;
                 case "BGRA32":
                     textureFormat = TextureFormat.BGRA32;
+                    break;
+                case "RGBAFloat":
+                    textureFormat = TextureFormat.RGBAFloat;
                     break;
                 case "DXT5":
                     textureFormat = TextureFormat.DXT5;
@@ -1885,7 +1962,6 @@ namespace VoyageVoyage
             FilterMode filterMode = (FilterMode)samplerProperties[samplerPropertyFilterIndex];
             TextureWrapMode wrapU = (TextureWrapMode)samplerProperties[samplerPropertyWrapSIndex];
             TextureWrapMode wrapV = (TextureWrapMode)samplerProperties[samplerPropertyWrapTIndex];
-            ReportInfo("CreateTexture2DFrom", $"{wrapU} - {wrapV}");
             tex.filterMode = filterMode;
             tex.wrapModeU = wrapU;
             tex.wrapModeV = wrapV;
@@ -2370,6 +2446,15 @@ namespace VoyageVoyage
             {
                 ReportError("SelectScene", $"No GLTF Scene component on the object representing Scene {currentScene} !?");
                 return sectionComplete;
+            }
+            
+            for (int i = 0; i < nScenes; i++)
+            {
+                Transform child = scenesInfoRoot.GetChild(i);
+                if (child == null) continue;
+                var scene = child.GetComponent<GLTFScene>();
+                if (scene == null) continue;
+                scene.Hide();
             }
 
             currentSceneInfo.Show();
