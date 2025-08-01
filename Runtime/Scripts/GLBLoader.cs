@@ -1931,6 +1931,9 @@ namespace VoyageVoyage
                 case "DXT5":
                     textureFormat = TextureFormat.DXT5;
                     break;
+                case "DXT5Crunched":
+                    textureFormat = TextureFormat.DXT5Crunched;
+                    break;
                 case "BC7":
                     textureFormat = TextureFormat.BC7;
                     break;

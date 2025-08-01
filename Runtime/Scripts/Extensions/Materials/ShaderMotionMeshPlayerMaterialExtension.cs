@@ -28,7 +28,7 @@ public class ShaderMotionMeshPlayerMaterialExtension : MaterialExtensionHandler
 
     public override string HandledExtensionName()
     {
-        return "ShaderMotion";
+        return "EXT_voyage_shadermotion";
     }
 
     void SetMaterialGltfTexture(Material mat, string propertyName, DataDictionary gltfMaterialTexture, GLBLoader loader)
