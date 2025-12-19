@@ -1,0 +1,6 @@
+{
+	"dependencies":
+		{
+			"io.github.vr-voyage.vrchat.glb-loader.shaders": "https://github.com/vr-voyage/vrchat-glb-loader-shaders.git"
+		}
+}

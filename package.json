@@ -8,7 +8,7 @@
     "com.vrchat.worlds": ">=3.5.3"
   },
   "dependencies": {
-    "io.github.vr-voyage.vrchat.glb-loader.shaders": "https://github.com/vr-voyage/vrchat-glb-loader-shaders.git"
+    "io.github.vr-voyage.vrchat.glb-loader.shaders": ">=1.0.0"
   },
   "author": {
     "name": "Voyage Voyage",
