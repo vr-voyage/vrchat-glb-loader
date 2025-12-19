@@ -7,6 +7,13 @@
   "vpmDependencies": {
     "com.vrchat.worlds": ">=3.5.3"
   },
+  "repository": "https://github.com/vr-voyage/vrchat-glb-loader",
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  },
+  "dependencies": {
+    "io.github.vr-voyage.vrchat.glb-loader.shaders": "1.0.0"
+  },
   "author": {
     "name": "Voyage Voyage",
     "email": "voyage@dontcontactmebymail.com",

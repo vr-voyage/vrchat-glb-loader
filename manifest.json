@@ -1,6 +1,14 @@
 {
-	"dependencies":
-		{
-			"io.github.vr-voyage.vrchat.glb-loader.shaders": "https://github.com/vr-voyage/vrchat-glb-loader-shaders.git"
-		}
+"scopedRegistries": [
+	{
+		"name": "Voyage Packages UPM Repository",
+		"url": "https://npm.pkg.github.com/@vr-voyage/",
+		"scopes": [
+			"io.github.vr-voyage"
+		]
+	}
+	],
+	"dependencies": {
+		"io.github.vr-voyage.vrchat.glb-loader.shaders": "1.0.0"
+	}
 }
