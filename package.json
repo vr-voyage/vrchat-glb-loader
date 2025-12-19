@@ -5,7 +5,10 @@
   "description": "Load 3D Models files like GLB/VRM at runtime.",
   "gitDependencies": {},
   "vpmDependencies": {
-    "com.vrchat.worlds": ">=3.5.2-beta.2"
+    "com.vrchat.worlds": ">=3.5.3"
+  },
+  "dependencies": {
+    "io.github.vr-voyage.vrchat.glb-loader.shaders": "git+https://github.com/vr-voyage/vrchat-glb-loader-shaders"
   },
   "author": {
     "name": "Voyage Voyage",
