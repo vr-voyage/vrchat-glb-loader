@@ -8,15 +8,24 @@ public class ShowAssetInfo : UdonSharpBehaviour
 
     public TMPro.TextMeshProUGUI copyright;
     public TMPro.TextMeshProUGUI generator;
-    public TMPro.TextMeshProUGUI version;
+    public TMPro.TextMeshProUGUI assetName;
+
+    public TMPro.TextMeshProUGUI triangles;
+    public TMPro.TextMeshProUGUI images;
+    public TMPro.TextMeshProUGUI materials;
 
     public void SceneLoaded()
     {
         if (loader == null) { return; }
         var assetInfoObject = loader.assetInfoObject;
         if (assetInfoObject == null) { return; }
-        copyright.text = loader.assetInfoObject.copyright;
-        generator.text = loader.assetInfoObject.generator;
-        version.text = loader.assetInfoObject.version;
+        assetName.text = assetInfoObject.assetName;
+        copyright.text = assetInfoObject.copyright;
+        generator.text = assetInfoObject.generator;
+
+        triangles.text = loader.GetTrianglesCount().ToString();
+        images.text = loader.GetImagesCount().ToString();
+        materials.text = loader.GetMaterialsCount().ToString();
+        
     }
 }

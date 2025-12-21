@@ -1,6 +1,7 @@
 ﻿
 using System;
 using System.Diagnostics.Eventing.Reader;
+using System.Text;
 using UdonSharp;
 using UnityEngine;
 using VRC.SDK3.Data;
@@ -27,7 +28,7 @@ namespace VoyageVoyage
 
         public DDSReader ddsTextureParser;
 
-        string[] extensionsHandledWithPlugins;
+        string[] extensionsHandledWithPlugins = new string[0];
 
         public GLTFAsset assetInfoObject;
         public int defaultScene;
@@ -37,14 +38,15 @@ namespace VoyageVoyage
 
         DataDictionary m_accessorTypesInfo;
 
-        object[] m_bufferViews;
-        object[] m_accessors;
-        public Material[] m_materials;
-        object[] m_meshesInfo;
-        public Texture2D[] m_textures;
-        object[] m_imagesProperties;
-        object[] m_samplerProperties;
-        GameObject[] m_nodes;
+        object[] m_bufferViews = new object[0];
+        object[] m_accessors = new object[0];
+        public Material[] m_materials = new Material[0];
+        object[] m_meshesInfo = new object[0];
+        public Texture2D[] m_textures = new Texture2D[0];
+        object[] m_imagesProperties = new object[0];
+        object[] m_samplerProperties = new object[0];
+        long[] m_stats = new long[statsFieldCount];
+        GameObject[] m_nodes = new GameObject[0];
 
         const int errorValue = -2;
         const int sectionComplete = -1;
@@ -96,6 +98,11 @@ namespace VoyageVoyage
         const int bufferViewFieldTarget = 4;
         const int bufferViewFieldsCount = 5;
 
+        const int statsFieldTriangles = 0;
+        const int statsFieldImages = 1;
+        const int statsFieldMaterials = 2;
+        const int statsFieldCount = 3;
+
         const string voyageExtensionName = "EXT_voyage_exporter";
         const string msftExtensionName = "MSFT_texture_dds";
         const string invalidExtensionName = "Invalid extension\n";
@@ -123,6 +130,7 @@ namespace VoyageVoyage
             m_imagesProperties = new object[0];
             m_textures = new Texture2D[0];
             m_nodes = new GameObject[0];
+            m_stats = new long[statsFieldCount]; 
 
             finished = false;
             limit = 0;
@@ -1266,6 +1274,26 @@ namespace VoyageVoyage
             return sectionComplete;
         }
 
+        void CountNewTriangles(long nTriangles)
+        {
+            m_stats[statsFieldTriangles] += nTriangles;
+        }
+
+        public long GetTrianglesCount()
+        {
+            return m_stats[statsFieldTriangles];
+        }
+
+        public int GetImagesCount()
+        {
+            return m_imagesProperties.Length;
+        }
+
+        public int GetMaterialsCount()
+        {
+            return m_materials.Length;
+        }
+
         int ParseMeshes(int startFrom)
         {
             if (glbJson == null)
@@ -1301,7 +1329,8 @@ namespace VoyageVoyage
                 if (!gotAMesh) continue;
 
                 meshesInfo[m] = new object[] { mesh, materialsIndices };
-                
+                CountNewTriangles(mesh.triangles.LongLength);
+
                 if ((m != startFrom) & (!StillHaveTime()))
                 {
                     return m;
@@ -1625,13 +1654,13 @@ namespace VoyageVoyage
             Material mat = NewMaterial(baseMaterial);
             mat.name = DictOptString(materialInfo, "name", mat.name);
 
-            bool normalTextureApplied = ApplyTextureIfAvailable(
+            /*bool normalTextureApplied = ApplyTextureIfAvailable(
                 materialInfo, "normalTexture", out DataDictionary normalTextureInfo,
                 mat, "_BumpMap", "_NORMALMAP");
             if (normalTextureApplied)
             {
                 mat.SetFloat("_BumpScale", DictOptFloat(normalTextureInfo, "scale", 1.0f));
-            }
+            }*/
 
             string alphaMode = DictOptString(materialInfo, "alphaMode", "");
             /* FIXME Handle different Alpha modes correctly ! */
@@ -2295,6 +2324,52 @@ namespace VoyageVoyage
             ParseGLB();
         }
 
+        const string VrmExtensionName = "VRMC_vrm";
+
+        void TryParseVRMMetaData()
+        {
+            bool gotValue = glbJson.TryGetValue("extensions", TokenType.DataDictionary, out var extensionsToken);
+            if (!gotValue) { return; }
+
+            DataDictionary extensionsDict = (DataDictionary)extensionsToken;
+            gotValue = extensionsDict.TryGetValue(VrmExtensionName, TokenType.DataDictionary, out var vrmExtensionToken);
+            if (!gotValue) { return; }
+
+            DataDictionary vrmExtensionDict = (DataDictionary)vrmExtensionToken;
+            gotValue = vrmExtensionDict.TryGetValue("meta", TokenType.DataDictionary, out var vrmMetaDataToken);
+            if (!gotValue) { return; }
+
+            DataDictionary vrmMetaDataDict = (DataDictionary)vrmMetaDataToken;
+            gotValue = vrmMetaDataDict.TryGetValue("authors", TokenType.DataList, out var authorsListToken);
+            if (!gotValue) { return; }
+
+            DataList authorsList = (DataList)authorsListToken;
+            int nAuthors = authorsList.Count;
+
+            if (nAuthors <= 0)
+            {
+                return;
+            }
+            
+            if (authorsList[0].TokenType != TokenType.String)
+            {
+                return;
+            }
+            StringBuilder sb = new StringBuilder((string)authorsList[0]);
+            
+            for (int i = 1; i < nAuthors; i++)
+            {
+                if (authorsList.TryGetValue(i, TokenType.String, out DataToken stringToken))
+                {
+                    sb.Append(", " + (string)stringToken);
+                }
+            }
+
+            
+            assetInfoObject.copyright = sb.ToString();
+            assetInfoObject.assetName = DictOptString(vrmMetaDataDict, "name", "");
+        }
+
         int ParseAssetData(int _)
         {
             if (glbJson == null)
@@ -2324,6 +2399,8 @@ namespace VoyageVoyage
             assetInfoObject.generator = DictOptString(assetInfo, "generator", "");
             assetInfoObject.copyright = DictOptString(assetInfo, "copyright", "");
             assetInfoObject.minVersion = DictOptString(assetInfo, "minVersion", "");
+
+            TryParseVRMMetaData();
 
             return sectionComplete;
         }

@@ -49,8 +49,10 @@ public class ShaderMotionMeshPlayerMaterialExtension : MaterialExtensionHandler
 
     public override void HandleInternal(Material material, DataDictionary extensionDefinition, DataDictionary mainMaterialDefinition, GLBLoader loader)
     {
-        material.shader = meshPlayerShader.shader;
-        
+        if (material.shader != meshPlayerShader.shader)
+        {
+            material.shader = meshPlayerShader.shader;
+        }
         int nFloatProperties = floatProperties.Length;
         for (int i = 0; i < nFloatProperties; i += 2)
         {

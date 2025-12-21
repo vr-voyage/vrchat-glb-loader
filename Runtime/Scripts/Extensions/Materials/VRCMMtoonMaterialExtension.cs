@@ -409,7 +409,11 @@ public class VRCMMtoonMaterialExtension : MaterialExtensionHandler
 
     public override void HandleInternal(Material material, DataDictionary extensionDefinition, DataDictionary mainMaterialDefinition, GLBLoader loader)
     {
-        material.shader = templateMaterial.shader;
+        if (material.shader != templateMaterial.shader)
+        {
+            material.shader = templateMaterial.shader;
+        }
+        
         int nProperties = mToonProperties.Length;
         for (int i = 0; i < nProperties; i++)
         {

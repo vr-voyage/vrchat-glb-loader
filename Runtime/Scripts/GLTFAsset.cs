@@ -10,6 +10,7 @@ public class GLTFAsset : UdonSharpBehaviour
     public string copyright = "";
     public string generator = "";
     public string minVersion = "";
+    public string assetName = "";
 
     public void Clear()
     {
@@ -17,6 +18,7 @@ public class GLTFAsset : UdonSharpBehaviour
         copyright = "";
         generator = "";
         minVersion = "";
+        assetName = "";
     }
 
 }
