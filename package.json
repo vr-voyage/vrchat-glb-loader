@@ -6,7 +6,7 @@
   "gitDependencies": {},
   "vpmDependencies": {
     "com.vrchat.worlds": ">=3.5.2-beta.2",
-    "io.github.vr-voyage.vrchat.glb-loader.shaders": "1.1.0"
+    "io.github.vr-voyage.vrchat.glb-loader.shaders": "1.0.1"
   },
   "repository": "https://github.com/vr-voyage/vrchat-glb-loader",
   "author": {
