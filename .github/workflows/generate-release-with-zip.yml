@@ -1,0 +1,45 @@
+on:
+  push:
+    tags:
+      - "*"
+
+name: Create and Publish release
+
+jobs:
+  build:
+    name: Create Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+      
+      - name: Get Repo Name
+        id: get_repo_name
+        run: |
+          # Extract repo name from GITHUB_REPOSITORY variable
+          repo_fullname="${{ github.repository }}"
+          repo_name="${repo_fullname##*/}"
+          echo "REPO_NAME=${repo_name}" >> $GITHUB_ENV
+
+      - name: Get Tag Name
+        id: get_tag_name
+        run: |
+          # Extract tag or branch name from GITHUB_REF
+          tag_name="${{ github.ref }}"
+          tag_name="${tag_name#refs/tags/}"
+          echo "TAG_NAME=${tag_name}" >> $GITHUB_ENV
+
+      - name: Create Release
+        run: |
+          echo "Repository Name: $REPO_NAME"
+          echo "Tag Name: $TAG_NAME"
+          git archive --format zip --output "${REPO_NAME}-${TAG_NAME}.zip" HEAD
+          echo "REPO_NAME=${REPO_NAME}" >> $GITHUB_ENV
+          echo "TAG_NAME=${TAG_NAME}" >> $GITHUB_ENV
+
+      - name: Upload Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: "${{ env.REPO_NAME }}-${{ env.TAG_NAME }}.zip"
+          generate_release_notes: true
+          token: "${{ secrets.MY_TOKEN }}"

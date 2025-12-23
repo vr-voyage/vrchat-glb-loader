@@ -301,7 +301,7 @@ namespace VoyageVoyage
             {
                 return;
             }
-            Transform[] children = t.GetComponentsInChildren<Transform>();
+            Transform[] children = t.GetComponentsInChildren<Transform>(true);
             int nChildren = children.Length;
             for (int c = 0; c < nChildren; c++)
             {
@@ -1654,13 +1654,13 @@ namespace VoyageVoyage
             Material mat = NewMaterial(baseMaterial);
             mat.name = DictOptString(materialInfo, "name", mat.name);
 
-            /*bool normalTextureApplied = ApplyTextureIfAvailable(
+            bool normalTextureApplied = ApplyTextureIfAvailable(
                 materialInfo, "normalTexture", out DataDictionary normalTextureInfo,
                 mat, "_BumpMap", "_NORMALMAP");
             if (normalTextureApplied)
             {
                 mat.SetFloat("_BumpScale", DictOptFloat(normalTextureInfo, "scale", 1.0f));
-            }*/
+            }
 
             string alphaMode = DictOptString(materialInfo, "alphaMode", "");
             /* FIXME Handle different Alpha modes correctly ! */
