@@ -1,6 +1,5 @@
 ﻿
 using System;
-using System.Diagnostics.Eventing.Reader;
 using System.Text;
 using UdonSharp;
 using UnityEngine;
@@ -13,9 +12,9 @@ namespace VoyageVoyage
     [UdonBehaviourSyncMode(BehaviourSyncMode.None)]
     public class GLBLoader : UdonSharpBehaviour
     {
-        
+
         public VRCUrl userURL;
-        
+
 
         public Transform mainParent;
         public GameObject nodePrefab;
@@ -76,6 +75,8 @@ namespace VoyageVoyage
         const int imagePropertyNameIndex = 2;
         const int imagePropertyWidthIndex = 3;
         const int imagePropertyHeightIndex = 4;
+        const int imagePropertyLinearIndex = 5;
+        const int nImageProperties = 6;
 
         const int samplerPropertyFilterIndex = 0;
         const int samplerPropertyWrapSIndex = 1;
@@ -130,7 +131,7 @@ namespace VoyageVoyage
             m_imagesProperties = new object[0];
             m_textures = new Texture2D[0];
             m_nodes = new GameObject[0];
-            m_stats = new long[statsFieldCount]; 
+            m_stats = new long[statsFieldCount];
 
             finished = false;
             limit = 0;
@@ -152,9 +153,19 @@ namespace VoyageVoyage
                 extensionsHandledWithPlugins[h] = extensionName;
                 ReportInfo("GenerateMaterialsExtensionsDictionary", $"Added {extensionName} to the list !");
             }
-            
+
         }
 
+
+        bool DictOptBool(DataDictionary dict, string fieldName, bool defaultValue)
+        {
+            bool retValue = defaultValue;
+            if (dict.TryGetValue(fieldName, TokenType.Boolean, out DataToken boolToken))
+            {
+                return (bool)boolToken;
+            }
+            return retValue;
+        }
         string DictOptString(DataDictionary dict, string fieldName, string defaultValue)
         {
             string retValue = defaultValue;
@@ -486,7 +497,7 @@ namespace VoyageVoyage
              * when jumping from one point to the next one.
              */
             int floatStride = 16;
-            if (byteStride > 16*4)
+            if (byteStride > 16 * 4)
             {
                 floatStride = byteStride / 4;
             }
@@ -495,18 +506,18 @@ namespace VoyageVoyage
             Matrix4x4[] ret = new Matrix4x4[nMatrices];
             for (int m = 0, f = 0; m < nMatrices; m++, f += floatStride)
             {
-                ret[m][0]  = floats[f + 0];
-                ret[m][1]  = floats[f + 1];
-                ret[m][2]  = floats[f + 2];
-                ret[m][3]  = floats[f + 3];
+                ret[m][0] = floats[f + 0];
+                ret[m][1] = floats[f + 1];
+                ret[m][2] = floats[f + 2];
+                ret[m][3] = floats[f + 3];
 
-                ret[m][4]  = floats[f + 4];
-                ret[m][5]  = floats[f + 5];
-                ret[m][6]  = floats[f + 6];
-                ret[m][7]  = floats[f + 7];
+                ret[m][4] = floats[f + 4];
+                ret[m][5] = floats[f + 5];
+                ret[m][6] = floats[f + 6];
+                ret[m][7] = floats[f + 7];
 
-                ret[m][8]  = floats[f + 8];
-                ret[m][9]  = floats[f + 9];
+                ret[m][8] = floats[f + 8];
+                ret[m][9] = floats[f + 9];
                 ret[m][10] = floats[f + 10];
                 ret[m][11] = floats[f + 11];
 
@@ -678,7 +689,7 @@ namespace VoyageVoyage
             {
                 return errorValue;
             }
-            
+
             if (startFrom == 0)
             {
                 bool gotAccessors = glbJson.TryGetValue("accessors", TokenType.DataList, out DataToken accessorsListToken);
@@ -752,7 +763,7 @@ namespace VoyageVoyage
         {
 
 
-            bool check = CheckFields(primitives, 
+            bool check = CheckFields(primitives,
                 "attributes", TokenType.DataDictionary,
                 "indices", TokenType.Double);
             if (!check)
@@ -801,13 +812,13 @@ namespace VoyageVoyage
             {
                 int currentAccessor = (int)uvAccessorsInfo[i];
                 int newAccessor = DictOptInt(attributes, $"_TEXCOORD_4D_{layer}", currentAccessor);
-                
+
                 if (currentAccessor != newAccessor)
                 {
                     uvAccessorsInfo[i] = newAccessor;
                     uvAccessorsInfo[i + 1] = vector4ArrayType;
                 }
-                    
+
             }
 
             materialsIndices[materialsIndicesOffset] = DictOptInt(primitives, "material", -1);
@@ -838,10 +849,10 @@ namespace VoyageVoyage
             DataList primitives = (DataList)meshInfo["primitives"];
             int nMeshes = primitives.Count;
             int actualNumberOfMeshes = 0;
-            
+
             // 4 type of views info : position, normals, uv, indices
             views = new object[nMeshes * meshInfoNIndices];
-            
+
             materialsIndices = new int[nMeshes];
             int v = 0;
             for (int m = 0; m < nMeshes; m++)
@@ -916,7 +927,7 @@ namespace VoyageVoyage
         {
             if (accessorType == "SCALAR" && stride > 2)
             {
-                return GetStridedUshorts(glb, offset, bufferSize, stride); 
+                return GetStridedUshorts(glb, offset, bufferSize, stride);
             }
 
             return GetUshorts(glb, offset, readSize);
@@ -984,11 +995,11 @@ namespace VoyageVoyage
             {
                 accessorCount = (accessorCount / 3) * 3;
             }
-            
+
             int componentsSize = (int)m_accessorTypesInfo[accessorComponentType];
             int arrayElementSize = nComponents * componentsSize;
-            
-            
+
+
 
             int actualOffset = glbDataStart + bufferOffset + accessorOffset;
             int remainingSize = bufferSize - accessorOffset;
@@ -1076,7 +1087,7 @@ namespace VoyageVoyage
                 ReportError("GetAccessorBuffer", $"No accessor info !");
                 return null;
             }
-            
+
             if (accessor.Length < accessorFieldsCount)
             {
                 ReportError("GetAccessorBuffer", $"Not enough info in accessors {accessor.Length} < {accessorFieldsCount}");
@@ -1096,9 +1107,9 @@ namespace VoyageVoyage
         {
             Mesh m = new Mesh();
 
-            int positionsAccessorIndex = (int) meshInfo[startOffset + meshInfoPositionAccessorIndex];
-            int normalsAccessorIndex = (int) meshInfo[startOffset + meshInfoNormalsAccessorIndex];
-            object[] uvsAccessorsIndices = (object[]) meshInfo[startOffset + meshInfoUvsAccessorIndex];
+            int positionsAccessorIndex = (int)meshInfo[startOffset + meshInfoPositionAccessorIndex];
+            int normalsAccessorIndex = (int)meshInfo[startOffset + meshInfoNormalsAccessorIndex];
+            object[] uvsAccessorsIndices = (object[])meshInfo[startOffset + meshInfoUvsAccessorIndex];
             int indicesAccessorIndex = (int)meshInfo[startOffset + meshInfoIndicesAccessorIndex];
 
             object[] parseOptions = AccessorBufferParseOptions();
@@ -1162,7 +1173,7 @@ namespace VoyageVoyage
                 else if (expectedType == vector4ArrayType) { m.SetUVs(uvChannel, (Vector4[])uvsBuffer); }
 
             }
-            
+
             if (indicesBuffer.GetType() == ushortArrayType)
             {
                 ushort[] indices = (ushort[])indicesBuffer;
@@ -1186,7 +1197,7 @@ namespace VoyageVoyage
             {
                 m.RecalculateNormals();
             }
-            
+
             return m;
 
         }
@@ -1252,7 +1263,7 @@ namespace VoyageVoyage
             }
 
             DataList bufferViews = (DataList)glbJson["bufferViews"];
-            
+
             if (startFrom == 0)
             {
                 m_bufferViews = new object[bufferViews.Count];
@@ -1260,7 +1271,7 @@ namespace VoyageVoyage
 
             object[] views = m_bufferViews;
             int nViews = m_bufferViews.Length;
-            
+
             for (int v = startFrom; v < nViews; v++)
             {
                 DataToken bufferViewToken = bufferViews[v];
@@ -1438,7 +1449,7 @@ namespace VoyageVoyage
             {
                 return errorValue;
             }
-            
+
             if (startFrom == 0)
             {
                 bool hasNodes = glbJson.TryGetValue("nodes", TokenType.DataList, out DataToken nodeslistToken);
@@ -1550,7 +1561,6 @@ namespace VoyageVoyage
         // Shamelessly stolen from https://forum.unity.com/threads/standard-material-shader-ignoring-setfloat-property-_mode.344557/
         public static void MaterialSetAsFade(Material material)
         {
-            Debug.Log($"Setting material {material.name} as Transparent");
             material.SetOverrideTag("RenderType", "Transparent");
             material.DisableKeyword("_ALPHATEST_ON");
             material.EnableKeyword("_ALPHABLEND_ON");
@@ -1563,7 +1573,6 @@ namespace VoyageVoyage
 
         public static void MaterialSetAsCutout(Material material, float threshold)
         {
-            Debug.Log("Setting material as Cutout !");
             material.SetOverrideTag("RenderType", "TransparentCutout");
             material.SetFloat("_Cutoff", threshold);
             material.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.One);
@@ -1643,7 +1652,7 @@ namespace VoyageVoyage
             MaterialEnableKeywords(mat, keywords);
             mat.SetTexture(propertyName, texture);
             mat.SetTextureOffset(propertyName, textureOffset);
-            mat.SetTextureOffset(propertyName, textureScale);
+            mat.SetTextureScale(propertyName, textureScale);
         }
 
         Material CreateMaterialFrom(DataDictionary materialInfo)
@@ -1697,7 +1706,7 @@ namespace VoyageVoyage
                 mat.SetFloat("_Metallic", metallic);
 
                 float roughness = DictOptFloat(pbrInfo, "roughnessFactor", 1f);
-                mat.SetFloat("_Glossiness", 1- roughness);
+                mat.SetFloat("_Glossiness", 1 - roughness);
                 mat.SetFloat("_GlossMapScale", 1 - roughness);
             }
 
@@ -1842,7 +1851,7 @@ namespace VoyageVoyage
 
         object[] CreateInvalidImage()
         {
-            return new object[] { -1, "InvalidFormat", "InvalidImage", -1, -1 };
+            return new object[nImageProperties] { -1, "InvalidFormat", "InvalidImage", -1, -1, false };
         }
 
         object ParseImage(DataDictionary imageInfo, byte[] glb)
@@ -1855,10 +1864,10 @@ namespace VoyageVoyage
                 return imageData;
             }
 
-            
+
 
             string textureName = DictOptString(imageInfo, "name", "Anonymous texture");
-            
+
             int bufferViewIndex = (int)(double)imageInfo["bufferView"];
             imageData[imagePropertyNameIndex] = textureName;
 
@@ -1896,6 +1905,7 @@ namespace VoyageVoyage
             int width = DictOptInt(voyageExtension, "width", -1);
             int height = DictOptInt(voyageExtension, "height", -1);
             string formatInfo = DictOptString(voyageExtension, "format", "");
+            bool linear = DictOptBool(voyageExtension, "linear", false);
 
             if ((width == -1) | (height == 1) | (formatInfo == ""))
             {
@@ -1906,6 +1916,7 @@ namespace VoyageVoyage
             imageData[imagePropertyFormatIndex] = formatInfo;
             imageData[imagePropertyWidthIndex] = width;
             imageData[imagePropertyHeightIndex] = height;
+            imageData[imagePropertyLinearIndex] = linear;
 
             return imageData;
         }
@@ -1945,7 +1956,9 @@ namespace VoyageVoyage
 
             int bufferViewIndex = (int)imageProperties[imagePropertyBufferViewIndex];
             string formatInfo = (string)imageProperties[imagePropertyFormatIndex];
-            TextureFormat textureFormat;
+            bool linear = (bool)imageProperties[imagePropertyLinearIndex];
+
+            TextureFormat textureFormat;            
             switch (formatInfo)
             {
                 case "RGBA8":
@@ -1956,6 +1969,9 @@ namespace VoyageVoyage
                     break;
                 case "RGBAFloat":
                     textureFormat = TextureFormat.RGBAFloat;
+                    break;
+                case "ARGB8":
+                    textureFormat = TextureFormat.ARGB32;
                     break;
                 case "DXT5":
                     textureFormat = TextureFormat.DXT5;
@@ -1973,7 +1989,7 @@ namespace VoyageVoyage
                     return CreateInvalidTexture("Unknown Format");
             }
 
-            
+
             int[] bufferViewProperties = (int[])m_bufferViews[bufferViewIndex];
 
             int offset = glbDataStart + bufferViewProperties[bufferViewFieldOffset];
@@ -1986,7 +2002,8 @@ namespace VoyageVoyage
             int height = (int)imageProperties[imagePropertyHeightIndex];
             string imageName = (string)imageProperties[imagePropertyNameIndex];
 
-            Texture2D tex = new Texture2D(width, height, textureFormat, false);
+            Debug.LogWarning($"Creating texture of {width} x {height} {textureFormat}. Linear ? {linear}");
+            Texture2D tex = new Texture2D(width, height, textureFormat, false, linear);
             tex.name = imageName;
             tex.LoadRawTextureData(textureData);
             tex.Apply(false, false);
@@ -2065,7 +2082,7 @@ namespace VoyageVoyage
         Texture2D ParseTexture(DataDictionary textureInfo, int textureIndex)
         {
             int sourceImage = UseBestTextureSource(textureInfo);
-            
+
             if (sourceImage == -1)
             {
                 ReportError("ParseTexture", $"Texture {textureIndex} has no source. Returning an empty Texture.");
@@ -2265,7 +2282,7 @@ namespace VoyageVoyage
             enabled = false;
         }
 
-        
+
 
         bool StillHaveTime()
         {
@@ -2350,13 +2367,13 @@ namespace VoyageVoyage
             {
                 return;
             }
-            
+
             if (authorsList[0].TokenType != TokenType.String)
             {
                 return;
             }
             StringBuilder sb = new StringBuilder((string)authorsList[0]);
-            
+
             for (int i = 1; i < nAuthors; i++)
             {
                 if (authorsList.TryGetValue(i, TokenType.String, out DataToken stringToken))
@@ -2365,7 +2382,7 @@ namespace VoyageVoyage
                 }
             }
 
-            
+
             assetInfoObject.copyright = sb.ToString();
             assetInfoObject.assetName = DictOptString(vrmMetaDataDict, "name", "");
         }
@@ -2378,7 +2395,7 @@ namespace VoyageVoyage
             }
 
             bool gotValue = glbJson.TryGetValue("asset", TokenType.DataDictionary, out DataToken assetDictToken);
-            if (!gotValue) 
+            if (!gotValue)
             {
                 ReportError("ParseAssetData", "Required 'asset' property not found");
                 return errorValue;
@@ -2416,7 +2433,7 @@ namespace VoyageVoyage
                 ReportError("DefineScene", $"The GLTFScene prefab is broken as it does NOT contain a GLTFScene component !");
                 return;
             }
-            
+
             if (sceneInfoToken.TokenType != TokenType.DataDictionary)
             {
                 ReportError("DefineScene", $"Scene {index} is not defined correctly. Expected a Dictionary, got a {sceneInfoToken.TokenType}");
@@ -2527,7 +2544,7 @@ namespace VoyageVoyage
                 ReportError("SelectScene", $"No GLTF Scene component on the object representing Scene {currentScene} !?");
                 return sectionComplete;
             }
-            
+
             for (int i = 0; i < nScenes; i++)
             {
                 Transform child = scenesInfoRoot.GetChild(i);
@@ -2606,20 +2623,6 @@ namespace VoyageVoyage
             }
 
             TriggerNextIteration();
-            //ReportInfo("ParseGLB", $"Iteration ended at {Time.realtimeSinceStartup}");
-
-            //m_bufferViews = ParseBufferViews((DataList)glbJsonRoot["bufferViews"], glb, cursor);
-            //m_accessors = ParseAccessors((DataList)glbJsonRoot["accessors"]);
-            /*if (glbJsonRoot.TryGetValue("images", TokenType.DataList, out DataToken imagesToken))
-            {
-                m_images = ParseImages((DataList)glbJsonRoot["images"], glb);
-            }*/
-            //m_materials = ParseMaterials((DataList)glbJsonRoot["materials"]);
-            
-            //ParseAndShowMeshes((DataList)glbJsonRoot["meshes"]);
-            //ParseNodes((DataList)glbJsonRoot["nodes"]);
-            
-
         }
 
         public void PrintStateHandlers()

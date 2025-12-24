@@ -17,6 +17,7 @@ public class ShowAssetInfo : UdonSharpBehaviour
     public void SceneLoaded()
     {
         if (loader == null) { return; }
+        if (copyright == null || generator == null || assetName == null || triangles == null || images == null || materials == null) { return; }
         var assetInfoObject = loader.assetInfoObject;
         if (assetInfoObject == null) { return; }
         assetName.text = assetInfoObject.assetName;

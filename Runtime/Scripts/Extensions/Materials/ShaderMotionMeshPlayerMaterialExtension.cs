@@ -51,7 +51,9 @@ public class ShaderMotionMeshPlayerMaterialExtension : MaterialExtensionHandler
     {
         if (material.shader != meshPlayerShader.shader)
         {
+            int renderQueue = material.renderQueue;
             material.shader = meshPlayerShader.shader;
+            material.renderQueue = renderQueue;
         }
         int nFloatProperties = floatProperties.Length;
         for (int i = 0; i < nFloatProperties; i += 2)

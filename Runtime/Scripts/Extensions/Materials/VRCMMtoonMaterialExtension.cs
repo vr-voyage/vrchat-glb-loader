@@ -218,7 +218,6 @@ public class VRCMMtoonMaterialExtension : MaterialExtensionHandler
     {
         outOffset = defaultOffset;
         outScale = defaultScale;
-        DumpDictionaryKeys(textureInfo);
         bool gotExtensions = textureInfo.TryGetValue(
             "extensions",
             TokenType.DataDictionary,
@@ -226,7 +225,6 @@ public class VRCMMtoonMaterialExtension : MaterialExtensionHandler
         if (!gotExtensions) { return; }
 
         DataDictionary extensions = (DataDictionary)extensionsDictToken;
-        DumpDictionaryKeys(extensions);
         bool gotExtension = extensions.TryGetValue("KHR_texture_transform", TokenType.DataDictionary, out DataToken extensionToken);
         if (!gotExtension) { return; }
 
@@ -325,18 +323,6 @@ public class VRCMMtoonMaterialExtension : MaterialExtensionHandler
 
     }
 
-    void DumpDictionaryKeys(DataDictionary dictionary)
-    {
-        DataList keys = dictionary.GetKeys();
-        int nKeys = keys.Count;
-        for (int k = 0; k < nKeys; k++)
-        {
-            string keyName = (string)keys[k];
-            DataToken token = dictionary[keyName];
-            Debug.Log($"<color=cyan>{keyName} [{token.TokenType}]</color>");
-        }
-    }
-
     const string unitySrcBlend = "_M_SrcBlend";
     const string unityDstBlend = "_M_DstBlend";
     const string unityAlphaToMask = "_M_AlphaToMask";
@@ -394,8 +380,10 @@ public class VRCMMtoonMaterialExtension : MaterialExtensionHandler
 
                 if (zWrite == 0)
                 {
+                    
                     renderQueueOffset = Mathf.Clamp(renderQueueOffset, -9, 0);
                     material.renderQueue = (int)RenderQueue.Transparent + renderQueueOffset;
+                    
                 }
                 else
                 {
@@ -405,6 +393,7 @@ public class VRCMMtoonMaterialExtension : MaterialExtensionHandler
 
                 break;
         }
+
     }
 
     public override void HandleInternal(Material material, DataDictionary extensionDefinition, DataDictionary mainMaterialDefinition, GLBLoader loader)
@@ -434,6 +423,11 @@ public class VRCMMtoonMaterialExtension : MaterialExtensionHandler
         {
             int zWrite = (int)(double)zWriteModeToken;
             material.SetInt("_M_ZWrite", zWrite);
+        }
+        if (mainMaterialDefinition.TryGetValue("doubleSided", TokenType.Boolean, out DataToken doubleSidedToken))
+        {
+            bool doubleSided = (bool)doubleSidedToken;
+            material.SetInt("_DoubleSided", doubleSided ? 1 : 0);
         }
 
 
