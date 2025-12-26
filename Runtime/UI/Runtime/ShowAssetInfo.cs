@@ -17,13 +17,15 @@ public class ShowAssetInfo : UdonSharpBehaviour
     public void SceneLoaded()
     {
         if (loader == null) { return; }
-        if (copyright == null || generator == null || assetName == null || triangles == null || images == null || materials == null) { return; }
+        if (copyright == null || generator == null) { return; }
         var assetInfoObject = loader.assetInfoObject;
         if (assetInfoObject == null) { return; }
-        assetName.text = assetInfoObject.assetName;
         copyright.text = assetInfoObject.copyright;
         generator.text = assetInfoObject.generator;
 
+        if (assetName == null || triangles == null || images == null || materials == null) { return; }
+
+        assetName.text = assetInfoObject.assetName;
         triangles.text = loader.GetTrianglesCount().ToString();
         images.text = loader.GetImagesCount().ToString();
         materials.text = loader.GetMaterialsCount().ToString();
