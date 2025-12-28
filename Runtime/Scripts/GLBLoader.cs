@@ -2002,7 +2002,6 @@ namespace VoyageVoyage
             int height = (int)imageProperties[imagePropertyHeightIndex];
             string imageName = (string)imageProperties[imagePropertyNameIndex];
 
-            Debug.LogWarning($"Creating texture of {width} x {height} {textureFormat}. Linear ? {linear}");
             Texture2D tex = new Texture2D(width, height, textureFormat, false, linear);
             tex.name = imageName;
             tex.LoadRawTextureData(textureData);
