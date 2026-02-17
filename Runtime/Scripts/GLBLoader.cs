@@ -605,17 +605,17 @@ namespace VoyageVoyage
         ushort[] InvertTriangles(ushort[] indices)
         {
             int nTriangles = indices.Length / 3;
-            int i, b, c;
+            int i, a, c;
             for (int t = 0; t < nTriangles; t++)
             {
                 i = t * 3;
-                // a = i + 0;
-                b = i + 1;
+                a = i + 0;
+                //    b = i + 1;
                 c = i + 2;
 
-                ushort pointB = indices[b];
-                indices[b] = indices[c];
-                indices[c] = pointB;
+                ushort pointC = indices[c];
+                indices[c] = indices[a];
+                indices[a] = pointC;
             }
             return indices;
         }
@@ -623,17 +623,17 @@ namespace VoyageVoyage
         int[] InvertTriangles(int[] indices)
         {
             int nTriangles = indices.Length / 3;
-            int i, b, c;
+            int i, a, c;
             for (int t = 0; t < nTriangles; t++)
             {
                 i = t * 3;
-                // a = i + 0;
-                b = i + 1;
+                a = i + 0;
+            //    b = i + 1;
                 c = i + 2;
 
-                int pointB = indices[b];
-                indices[b] = indices[c];
-                indices[c] = pointB;
+                int pointC = indices[c];
+                indices[c] = indices[a];
+                indices[a] = pointC;
             }
             return indices;
         }
@@ -1103,6 +1103,104 @@ namespace VoyageVoyage
             return ParseAccessorBuffer(accessor, options);
         }
 
+        public static Vector3[] OrthoNormalize(Vector3 vectorA, Vector3 vectorB)
+        {
+            vectorA.Normalize(); // Assuming this is a method that normalizes the vector
+            vectorB -= Vector3.Dot(vectorA, vectorB) * vectorA;
+            if (vectorB.magnitude > float.Epsilon) // To handle potential zero vectors
+                vectorB.Normalize();  // Normalizing second vector
+            else
+            {
+                // If the second vector is almost zero, a random orthogonal vector can be generated
+                Vector3 tempVec = Vector3.Cross(vectorA, UnityEngine.Random.onUnitSphere);
+                tempVec.Normalize();
+                vectorB = tempVec;
+            }
+            return new Vector3[] { vectorA, vectorB };
+        }
+
+        public static void CalcTangents(Mesh mesh)
+        {
+            int vertexCount = mesh.vertexCount;
+            Vector3[] vertices = mesh.vertices;
+            Vector3[] normals = mesh.normals;
+            Vector2[] texcoords = mesh.uv;
+            if (texcoords.Length != vertices.Length || texcoords.Length != normals.Length)
+            {
+                return;
+            }
+            int[] triangles = mesh.triangles;
+            int triangleCount = triangles.Length / 3;
+
+            Vector4[] tangents = new Vector4[vertexCount];
+            Vector3[] tan1 = new Vector3[vertexCount];
+            Vector3[] tan2 = new Vector3[vertexCount];
+
+            int tri = 0;
+
+            for (int i = 0; i < (triangleCount); i++)
+            {
+                int i1 = triangles[tri];
+                int i2 = triangles[tri + 1];
+                int i3 = triangles[tri + 2];
+
+                Vector3 v1 = vertices[i1];
+                Vector3 v2 = vertices[i2];
+                Vector3 v3 = vertices[i3];
+
+                Vector2 w1 = texcoords[i1];
+                Vector2 w2 = texcoords[i2];
+                Vector2 w3 = texcoords[i3];
+
+                float x1 = v2.x - v1.x;
+                float x2 = v3.x - v1.x;
+                float y1 = v2.y - v1.y;
+                float y2 = v3.y - v1.y;
+                float z1 = v2.z - v1.z;
+                float z2 = v3.z - v1.z;
+
+                float s1 = w2.x - w1.x;
+                float s2 = w3.x - w1.x;
+                float t1 = w2.y - w1.y;
+                float t2 = w3.y - w1.y;
+
+                float r = 1.0f / (s1 * t2 - s2 * t1);
+                Vector3 sdir = new Vector3((t2 * x1 - t1 * x2) * r, (t2 * y1 - t1 * y2) * r, (t2 * z1 - t1 * z2) * r);
+                Vector3 tdir = new Vector3((s1 * x2 - s2 * x1) * r, (s1 * y2 - s2 * y1) * r, (s1 * z2 - s2 * z1) * r);
+
+                tan1[i1] += sdir;
+                tan1[i2] += sdir;
+                tan1[i3] += sdir;
+
+                tan2[i1] += tdir;
+                tan2[i2] += tdir;
+                tan2[i3] += tdir;
+
+                tri += 3;
+            }
+
+            for (int i = 0; i < (vertexCount); i++)
+            {
+                Vector3 n = normals[i];
+                Vector3 t = tan1[i];
+
+                // Gram-Schmidt orthogonalize
+                Vector3[] normalizedVectors = OrthoNormalize(n, t);
+                n = normalizedVectors[0];
+                t = normalizedVectors[1];
+                //Vector3.OrthoNormalize(ref n, ref t);
+                tangents[i].x = t.x;
+                tangents[i].y = t.y;
+                tangents[i].z = t.z;
+
+                // Calculate handedness
+                tangents[i].w = (Vector3.Dot(Vector3.Cross(n, t), tan2[i]) < 0.0f) ? 1.0f : -1.0f;
+            }
+
+            mesh.tangents = tangents;
+        }
+    
+
         Mesh LoadMeshFrom(object[] meshInfo, int startOffset)
         {
             Mesh m = new Mesh();
@@ -1114,7 +1212,7 @@ namespace VoyageVoyage
 
             object[] parseOptions = AccessorBufferParseOptions();
             parseOptions[rescaleOptionIndex] = true;
-            parseOptions[scaleFactorOptionIndex] = new Vector3(-1, 1, 1);
+            parseOptions[scaleFactorOptionIndex] = new Vector3(1, 1, -1);
 
             object positionsBuffer = GetAccessorBuffer(positionsAccessorIndex, parseOptions);
             if (positionsBuffer == null)
@@ -1144,13 +1242,15 @@ namespace VoyageVoyage
 
             ResetAccessorBufferParseOptions(parseOptions);
             parseOptions[rescaleOptionIndex] = true;
-            parseOptions[scaleFactorOptionIndex] = new Vector3(-1, 1, 1);
+            parseOptions[scaleFactorOptionIndex] = new Vector3(1, 1, -1); 
             object normalsBuffer = GetAccessorBuffer(normalsAccessorIndex, parseOptions);
             if (normalsBuffer != null && normalsBuffer.GetType() == vector3ArrayType)
             {
                 m.normals = (Vector3[])normalsBuffer;
+                //m.RecalculateNormals();
+                
             }
-
+            
             ResetAccessorBufferParseOptions(parseOptions);
 
             for (int i = 0, uvChannel = 0; i < nMaxUvLayers; uvChannel++, i += 2)
@@ -1198,6 +1298,17 @@ namespace VoyageVoyage
                 m.RecalculateNormals();
             }
 
+            m.RecalculateTangents();
+            Vector4[] tangents = m.tangents;
+            int nTangents = tangents.Length;
+            for (int i = 0; i < nTangents; i++)
+            {
+                Vector4 tangent = tangents[i];
+                tangent.w *= -1.0f;
+                tangents[i] = tangent;
+            }
+            m.tangents = tangents;
+            //CalcTangents(m);
             return m;
 
         }
@@ -1521,8 +1632,8 @@ namespace VoyageVoyage
 
                 node.name = name;
 
-                position.x *= -1;
-                rotation = new Quaternion(-rotation.x, rotation.y, rotation.z, -rotation.w);
+                position.z *= -1;
+                rotation = new Quaternion(rotation.x, rotation.y, -rotation.z, -rotation.w);
 
                 /* Setup the transform */
                 Transform transform = node.transform;
@@ -1608,7 +1719,7 @@ namespace VoyageVoyage
         }
 
 
-        bool ApplyTextureIfAvailable(DataDictionary info, string textureKey, out DataDictionary outTextureInfo, Material mat, string matPropertyName, params string[] keywords)
+        bool ApplyTextureIfAvailable(DataDictionary info, string textureKey, out DataDictionary outTextureInfo, Material mat, string matPropertyName, bool expectLinear, params string[] keywords)
         {
             outTextureInfo = null;
             bool textureKeyExist = info.TryGetValue(textureKey, TokenType.DataDictionary, out DataToken textureInfoToken);
@@ -1628,6 +1739,11 @@ namespace VoyageVoyage
             HandleKhrTextureTransform(textureInfo, out defaultOffset, out defaultScale);
 
             Texture2D textureToApply = m_textures[textureIndex];
+            if (expectLinear && textureToApply.isDataSRGB)
+            {
+                textureToApply = ParseTexture((DataDictionary)((DataList)glbJson["textures"])[textureIndex], textureIndex, true);
+                m_textures[textureIndex] = textureToApply;
+            }
 
             SetMaterialTexture(mat, matPropertyName, textureToApply, textureOffset, textureScale, keywords);
             outTextureInfo = textureInfo;
@@ -1663,9 +1779,15 @@ namespace VoyageVoyage
             Material mat = NewMaterial(baseMaterial);
             mat.name = DictOptString(materialInfo, "name", mat.name);
 
+            //mat.globalIlluminationFlags = MaterialGlobalIlluminationFlags.BakedEmissive;
+            mat.SetTexture("_EmissionMap", null);
+            mat.DisableKeyword("_EMISSION");
+            mat.SetColor("_EmissionColor", Color.black);
+
+
             bool normalTextureApplied = ApplyTextureIfAvailable(
                 materialInfo, "normalTexture", out DataDictionary normalTextureInfo,
-                mat, "_BumpMap", "_NORMALMAP");
+                mat, "_BumpMap", true, "_NORMALMAP");
             if (normalTextureApplied)
             {
                 mat.SetFloat("_BumpScale", DictOptFloat(normalTextureInfo, "scale", 1.0f));
@@ -1688,10 +1810,10 @@ namespace VoyageVoyage
 
                 ApplyTextureIfAvailable(
                     pbrInfo, "baseColorTexture", out unused,
-                    mat, textureUnit);
+                    mat, textureUnit, false);
                 ApplyTextureIfAvailable(
                     pbrInfo, "metallicRoughnessTexture", out unused,
-                    mat, "_MetallicGlossMap");
+                    mat, "_MetallicGlossMap", false);
 
                 // https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html#reference-material-pbrmetallicroughness
                 // baseColorFactor : Default 1
@@ -1713,21 +1835,21 @@ namespace VoyageVoyage
             if (materialInfo.TryGetValue("emissiveFactor", TokenType.DataList, out DataToken emissionColorToken))
             {
                 mat.EnableKeyword("_EMISSION");
-                mat.globalIlluminationFlags = MaterialGlobalIlluminationFlags.None;
+                //mat.globalIlluminationFlags = MaterialGlobalIlluminationFlags.None;
                 mat.SetColor("_EmissionColor", DataListToColorRGB((DataList)emissionColorToken));
             }
 
             bool appliedEmission = ApplyTextureIfAvailable(
                     materialInfo, "emissiveTexture", out unused,
-                    mat, "_EmissionMap", "_EMISSION");
+                    mat, "_EmissionMap", false, "_EMISSION");
             if (appliedEmission)
             {
-                mat.globalIlluminationFlags = MaterialGlobalIlluminationFlags.None;
+                mat.globalIlluminationFlags = MaterialGlobalIlluminationFlags.BakedEmissive;
             }
 
             ApplyTextureIfAvailable(
                     materialInfo, "occlusionTexture", out unused,
-                    mat, "_OcclusionMap");
+                    mat, "_OcclusionMap", false);
 
             if (materialInfo.TryGetValue("extensions", TokenType.DataDictionary, out DataToken extensionsDictToken))
             {
@@ -2078,7 +2200,7 @@ namespace VoyageVoyage
 
         }
 
-        Texture2D ParseTexture(DataDictionary textureInfo, int textureIndex)
+        Texture2D ParseTexture(DataDictionary textureInfo, int textureIndex, bool forceLinear = false)
         {
             int sourceImage = UseBestTextureSource(textureInfo);
 
@@ -2102,6 +2224,11 @@ namespace VoyageVoyage
             {
                 samplerProperties = (object[])m_samplerProperties[samplerIndex];
             }
+            if (forceLinear)
+            {
+                imagesProperties[imagePropertyLinearIndex] = forceLinear;
+            }
+            
             Texture2D texture = CreateTexture2DFrom(imagesProperties, samplerProperties);
             if (textureInfo.TryGetValue("name", TokenType.String, out DataToken nameToken))
             {
