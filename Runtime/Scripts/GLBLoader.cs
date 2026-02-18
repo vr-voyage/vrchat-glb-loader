@@ -92,6 +92,13 @@ namespace VoyageVoyage
         const int accessorFieldBufferType = 6;
         const int accessorFieldsCount = 7;
 
+        const int meshInfoPositionAccessorIndex = 0;
+        const int meshInfoNormalsAccessorIndex = 1;
+        const int meshInfoUvsAccessorIndex = 2;
+        const int meshInfoIndicesAccessorIndex = 3;
+        const int meshInfoTangentAccessorIndex = 4;
+        const int meshInfoNIndices = 5;
+
         const int bufferViewFieldBufferIndex = 0;
         const int bufferViewFieldOffset = 1;
         const int bufferViewFieldSize = 2;
@@ -786,6 +793,7 @@ namespace VoyageVoyage
             accessorsInfo[offset + meshInfoPositionAccessorIndex] = (int)(double)attributes["POSITION"];
             accessorsInfo[offset + meshInfoNormalsAccessorIndex] = DictOptInt(attributes, "NORMAL", -1);
             accessorsInfo[offset + meshInfoIndicesAccessorIndex] = (int)(double)primitives["indices"];
+            accessorsInfo[offset + meshInfoTangentAccessorIndex] = DictOptInt(attributes, "TANGENT", -1);
             //accessorsInfo[offset + meshInfoBonesWeightsIndex] = DictOptInt(attributes, "WEIGHTS_0", -1);
             //accessorsInfo[offset + meshInfoBonesIndicesIndex] = DictOptInt(attributes, "JOINTS_0", -1);
             object[] uvAccessorsInfo = new object[nMaxUvLayers * 2];
@@ -825,11 +833,7 @@ namespace VoyageVoyage
             return true;
         }
 
-        const int meshInfoPositionAccessorIndex = 0;
-        const int meshInfoNormalsAccessorIndex = 1;
-        const int meshInfoUvsAccessorIndex = 2;
-        const int meshInfoIndicesAccessorIndex = 3;
-        const int meshInfoNIndices = 4;
+
         bool GetMeshInfo(DataDictionary meshInfo, out string name, out int meshes, out object[] views, out int[] materialsIndices)
         {
             name = DictOptString(meshInfo, "name", "_GLBLoader_AnonymousMesh");
@@ -1209,6 +1213,7 @@ namespace VoyageVoyage
             int normalsAccessorIndex = (int)meshInfo[startOffset + meshInfoNormalsAccessorIndex];
             object[] uvsAccessorsIndices = (object[])meshInfo[startOffset + meshInfoUvsAccessorIndex];
             int indicesAccessorIndex = (int)meshInfo[startOffset + meshInfoIndicesAccessorIndex];
+            int tangentAccessorIndex = (int)meshInfo[startOffset + meshInfoTangentAccessorIndex];
 
             object[] parseOptions = AccessorBufferParseOptions();
             parseOptions[rescaleOptionIndex] = true;
@@ -1308,6 +1313,10 @@ namespace VoyageVoyage
                 tangents[i] = tangent;
             }
             m.tangents = tangents;
+
+
+            //    m.RecalculateTangents();
+            
             //CalcTangents(m);
             return m;
 
@@ -1808,13 +1817,6 @@ namespace VoyageVoyage
             {
                 DataDictionary pbrInfo = (DataDictionary)pbrToken;
 
-                ApplyTextureIfAvailable(
-                    pbrInfo, "baseColorTexture", out unused,
-                    mat, textureUnit, false);
-                ApplyTextureIfAvailable(
-                    pbrInfo, "metallicRoughnessTexture", out unused,
-                    mat, "_MetallicGlossMap", false);
-
                 // https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html#reference-material-pbrmetallicroughness
                 // baseColorFactor : Default 1
                 // metallicFactor : Default 1
@@ -1827,9 +1829,19 @@ namespace VoyageVoyage
                 float metallic = DictOptFloat(pbrInfo, "metallicFactor", 1.0f);
                 mat.SetFloat("_Metallic", metallic);
 
-                float roughness = DictOptFloat(pbrInfo, "roughnessFactor", 1f);
-                mat.SetFloat("_Glossiness", 1 - roughness);
-                mat.SetFloat("_GlossMapScale", 1 - roughness);
+
+
+                ApplyTextureIfAvailable(
+                    pbrInfo, "baseColorTexture", out unused,
+                    mat, textureUnit, false);
+                bool gotGlossMetalMap =  ApplyTextureIfAvailable(
+                    pbrInfo, "metallicRoughnessTexture", out unused,
+                    mat, "_MetallicGlossMap", false, "_METALLICGLOSSMAP");
+
+                float roughness = DictOptFloat(pbrInfo, "roughnessFactor", gotGlossMetalMap ? 0.0f : 1.0f);
+                float glossiness = 1.0f - roughness;
+                mat.SetFloat("_Glossiness", glossiness);
+                mat.SetFloat("_GlossMapScale", glossiness);
             }
 
             if (materialInfo.TryGetValue("emissiveFactor", TokenType.DataList, out DataToken emissionColorToken))
