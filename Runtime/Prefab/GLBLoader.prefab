@@ -309,6 +309,13 @@ MeshRenderer:
   - {fileID: 2100000, guid: 8d40d420237fa6949aa918f56cd21145, type: 2}
   - {fileID: 2100000, guid: 7ea1fc23371b67d418cd824a29b64973, type: 2}
   - {fileID: 2100000, guid: 1528cd6082fe9934c8c64caaf1fadca4, type: 2}
+  - {fileID: 2100000, guid: c6b4f10a2c85e1846866da211f295756, type: 2}
+  - {fileID: 2100000, guid: 53edb77c3b172394a9bd0a42358a3026, type: 2}
+  - {fileID: 2100000, guid: a7b22c861475baf43900bf084c3e453d, type: 2}
+  - {fileID: 2100000, guid: 21ff50e3c275f1f44bac3d0308564012, type: 2}
+  - {fileID: 2100000, guid: 1b539a824f0f40843ba1f376bec51ce5, type: 2}
+  - {fileID: 2100000, guid: d2c600bff2a876e4ea9f73443fb01c28, type: 2}
+  - {fileID: 2100000, guid: c6b4f10a2c85e1846866da211f295756, type: 2}
   m_StaticBatchInfo:
     firstSubMesh: 0
     subMeshCount: 0
@@ -1879,11 +1886,6 @@ PrefabInstance:
         type: 3}
       propertyPath: m_SizeDelta.x
       value: 428.07
-      objectReference: {fileID: 0}
-    - target: {fileID: 8888683155226614882, guid: aa5ab191909298f4d996a7597ba93961,
-        type: 3}
-      propertyPath: m_SizeDelta.y
-      value: 103.9
       objectReference: {fileID: 0}
     - target: {fileID: 8888683155226614882, guid: aa5ab191909298f4d996a7597ba93961,
         type: 3}

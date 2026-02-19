@@ -8,11 +8,14 @@ Material:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_Name: BaseMaterialNormalMap
-  m_Shader: {fileID: 46, guid: 0000000000000000f000000000000000, type: 0}
+  m_Shader: {fileID: 4800000, guid: 9e9e3f6f770ea6a47ab39496b214e364, type: 3}
   m_Parent: {fileID: 0}
   m_ModifiedSerializedProperties: 0
-  m_ValidKeywords: []
-  m_InvalidKeywords: []
+  m_ValidKeywords:
+  - _LIGHTMAPSPECULAR
+  - _NORMALMAP
+  m_InvalidKeywords:
+  - _BAKERY_NONE
   m_LightmapFlags: 4
   m_EnableInstancingVariants: 1
   m_DoubleSidedGI: 0
@@ -24,7 +27,11 @@ Material:
     serializedVersion: 3
     m_TexEnvs:
     - _BumpMap:
-        m_Texture: {fileID: 2800000, guid: 69eccd0337f5b164da1cf6dea2a7fdca, type: 3}
+        m_Texture: {fileID: 10904, guid: 0000000000000000f000000000000000, type: 0}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _DFG:
+        m_Texture: {fileID: 0}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     - _DetailAlbedoMap:
@@ -59,24 +66,51 @@ Material:
         m_Texture: {fileID: 0}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
+    - _RNM0:
+        m_Texture: {fileID: 0}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _RNM1:
+        m_Texture: {fileID: 0}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _RNM2:
+        m_Texture: {fileID: 0}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
     m_Ints: []
     m_Floats:
+    - _AlphaToMaskMode: 0
+    - _Bakery: 0
+    - _BakeryVertexLM: 0
     - _BumpScale: 1
+    - _BumpShadowHardness: 50
+    - _BumpShadowHeightScale: 0.2
+    - _CullMode: 2
     - _Cutoff: 0.5
     - _DetailNormalMapScale: 1
     - _DstBlend: 0
+    - _ExposureOcclusion: 0.2
     - _GlossMapScale: 1
     - _Glossiness: 0.5
     - _GlossyReflections: 1
+    - _LTCGI: 0
+    - _LightmapSpecular: 1
+    - _LightmapSpecularMaxSmoothness: 0.6
     - _Metallic: 0
     - _Mode: 0
+    - _NormalMapShadows: 0
     - _OcclusionStrength: 1
     - _Parallax: 0.02
     - _SmoothnessTextureChannel: 0
     - _SpecularHighlights: 1
     - _SrcBlend: 1
     - _UVSec: 0
+    - _VRCLV: 0
+    - _VRCLVSurfaceBias: 0.05
     - _ZWrite: 1
+    - _specularAntiAliasingThreshold: 0.25
+    - _specularAntiAliasingVariance: 0.15
     m_Colors:
     - _Color: {r: 1, g: 1, b: 1, a: 1}
     - _EmissionColor: {r: 1, g: 1, b: 1, a: 1}

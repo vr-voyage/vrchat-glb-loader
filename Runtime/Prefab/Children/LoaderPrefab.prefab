@@ -489,6 +489,7 @@ MonoBehaviour:
   currentlyHeldBy: {fileID: 0}
   pickupable: 1
   proximity: 2
+  version: 0
 --- !u!114 &1909136059995104819
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -841,6 +842,7 @@ MonoBehaviour:
   copyright: 
   generator: 
   minVersion: 
+  assetName: 
 --- !u!114 &8019034228360772593
 MonoBehaviour:
   m_ObjectHideFlags: 0
