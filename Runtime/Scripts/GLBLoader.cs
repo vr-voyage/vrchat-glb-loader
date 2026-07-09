@@ -1,5 +1,7 @@
-﻿
+
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Text;
 using UdonSharp;
 using UnityEngine;
@@ -9,6 +11,19 @@ using VRC.SDKBase;
 
 namespace VoyageVoyage
 {
+    public static class VariousHelpers
+    {
+        public static bool Contains(this string[] strings, string s)
+        {
+            int nStrings = strings.Length;
+            for (int i = 0; i < nStrings; i++)
+            {
+                if (strings[i] == s) return true;
+            }
+            return false;
+        }
+    }
+
     [UdonBehaviourSyncMode(BehaviourSyncMode.None)]
     public class GLBLoader : UdonSharpBehaviour
     {
@@ -28,6 +43,7 @@ namespace VoyageVoyage
         public DDSReader ddsTextureParser;
 
         string[] extensionsHandledWithPlugins = new string[0];
+        public string[] extensionsUsed = new string[0];
 
         public GLTFAsset assetInfoObject;
         public int defaultScene;
@@ -113,8 +129,19 @@ namespace VoyageVoyage
 
         const string voyageExtensionName = "EXT_voyage_exporter";
         const string msftExtensionName = "MSFT_texture_dds";
+        const string texTransformExtensionName = "KHR_texture_transform";
         const string invalidExtensionName = "Invalid extension\n";
         const string ddsMimeType = "image/vnd-ms.dds";
+
+        string[] defaultManagedExtensions = new string[]
+        {
+            voyageExtensionName,
+            msftExtensionName,
+            texTransformExtensionName
+        };
+
+        Vector2 defaultOffset = Vector2.zero;
+        Vector2 defaultScale = Vector2.one;
 
         Type ushortArrayType = typeof(ushort[]);
         Type intArrayType = typeof(int[]);
@@ -181,6 +208,24 @@ namespace VoyageVoyage
                 return (string)stringToken;
             }
             return retValue;
+        }
+
+        DataDictionary DictOptDict(DataDictionary dict, string fieldName)
+        {
+            if (dict.TryGetValue(fieldName, TokenType.DataDictionary, out DataToken dictToken))
+            {
+                return (DataDictionary)dictToken;
+            }
+            return new DataDictionary();
+        }
+
+        DataList DictOptList(DataDictionary dict, string fieldName)
+        {
+            if (dict.TryGetValue(fieldName, TokenType.DataList, out DataToken listToken))
+            {
+                return (DataList)listToken;
+            }
+            return new DataList();
         }
 
         int DictOptInt(DataDictionary dict, string fieldName, int defaultValue)
@@ -302,8 +347,11 @@ namespace VoyageVoyage
 
             currentState = 0;
             this.enabled = true;
-            //ReportInfo("StartParsing", $"Starting at {Time.realtimeSinceStartup}");
-            //ParseGLB();
+        }
+
+        public void Load(byte[] glbData)
+        {
+            StartParsingGlb(glbData);
         }
 
         public void StartParsingGlb(byte[] glbData)
@@ -349,16 +397,6 @@ namespace VoyageVoyage
             Debug.Log($"<color=green>[{tag}] {message}</color>");
         }
 
-        public override void OnStringLoadSuccess(IVRCStringDownload result)
-        {
-            //ReportInfo("OnStringLoadSuccess", $"Time : {Time.realtimeSinceStartup}");
-            StartParsingGlb(result.ResultBytes);
-        }
-
-        public override void OnStringLoadError(IVRCStringDownload result)
-        {
-            ReportError("StringDownloader", $"Error loading string: {result.ErrorCode} - {result.Error}");
-        }
 
         void Start()
         {
@@ -384,23 +422,10 @@ namespace VoyageVoyage
             m_accessorTypesInfo[5126] = 4;
 
             GenerateMaterialsExtensionsDictionary();
-
-            //DownloadModel();
-        }
-
-        void DownloadModel()
-        {
-            VRCStringDownloader.LoadUrl(userURL, (VRC.Udon.Common.Interfaces.IUdonEventReceiver)this);
-        }
-
-        public void UserURLUpdated()
-        {
-            DownloadModel();
         }
 
         void DumpList(string name, DataList list)
         {
-            Debug.Log($"<color=blue> Dumping list {name} !</color>");
             int nElements = list.Count;
             for (int i = 0; i < nElements; i++)
             {
@@ -635,7 +660,7 @@ namespace VoyageVoyage
             {
                 i = t * 3;
                 a = i + 0;
-            //    b = i + 1;
+                //    b = i + 1;
                 c = i + 2;
 
                 int pointC = indices[c];
@@ -1203,7 +1228,7 @@ namespace VoyageVoyage
 
             mesh.tangents = tangents;
         }
-    
+
 
         Mesh LoadMeshFrom(object[] meshInfo, int startOffset)
         {
@@ -1247,15 +1272,15 @@ namespace VoyageVoyage
 
             ResetAccessorBufferParseOptions(parseOptions);
             parseOptions[rescaleOptionIndex] = true;
-            parseOptions[scaleFactorOptionIndex] = new Vector3(1, 1, -1); 
+            parseOptions[scaleFactorOptionIndex] = new Vector3(1, 1, -1);
             object normalsBuffer = GetAccessorBuffer(normalsAccessorIndex, parseOptions);
             if (normalsBuffer != null && normalsBuffer.GetType() == vector3ArrayType)
             {
                 m.normals = (Vector3[])normalsBuffer;
                 //m.RecalculateNormals();
-                
+
             }
-            
+
             ResetAccessorBufferParseOptions(parseOptions);
 
             for (int i = 0, uvChannel = 0; i < nMaxUvLayers; uvChannel++, i += 2)
@@ -1316,7 +1341,7 @@ namespace VoyageVoyage
 
 
             //    m.RecalculateTangents();
-            
+
             //CalcTangents(m);
             return m;
 
@@ -1423,6 +1448,16 @@ namespace VoyageVoyage
         public int GetMaterialsCount()
         {
             return m_materials.Length;
+        }
+
+        public int GetTexturesCount()
+        {
+            return m_textures.Length;
+        }
+
+        public int GetMeshesCount()
+        {
+            return m_meshesInfo.Length;
         }
 
         int ParseMeshes(int startFrom)
@@ -1704,10 +1739,6 @@ namespace VoyageVoyage
             material.renderQueue = 2450;
         }
 
-        Vector2 defaultOffset = Vector2.zero;
-        Vector2 defaultScale = Vector2.one;
-
-
         void HandleKhrTextureTransform(DataDictionary textureInfo, out Vector2 outOffset, out Vector2 outScale)
         {
             outOffset = defaultOffset;
@@ -1718,7 +1749,7 @@ namespace VoyageVoyage
                 out DataToken extensionsDictToken);
             if (!gotExtensions) { return; }
 
-            bool gotExtension = textureInfo.TryGetValue("KHR_texture_transform", TokenType.DataDictionary, out DataToken extensionToken);
+            bool gotExtension = textureInfo.TryGetValue(texTransformExtensionName, TokenType.DataDictionary, out DataToken extensionToken);
             if (!gotExtension) { return; }
 
             DataDictionary textureTransform = (DataDictionary)extensionToken;
@@ -1834,7 +1865,7 @@ namespace VoyageVoyage
                 ApplyTextureIfAvailable(
                     pbrInfo, "baseColorTexture", out unused,
                     mat, textureUnit, false);
-                bool gotGlossMetalMap =  ApplyTextureIfAvailable(
+                bool gotGlossMetalMap = ApplyTextureIfAvailable(
                     pbrInfo, "metallicRoughnessTexture", out unused,
                     mat, "_MetallicGlossMap", false, "_METALLICGLOSSMAP");
 
@@ -2092,7 +2123,7 @@ namespace VoyageVoyage
             string formatInfo = (string)imageProperties[imagePropertyFormatIndex];
             bool linear = (bool)imageProperties[imagePropertyLinearIndex];
 
-            TextureFormat textureFormat;            
+            TextureFormat textureFormat;
             switch (formatInfo)
             {
                 case "RGBA8":
@@ -2240,7 +2271,7 @@ namespace VoyageVoyage
             {
                 imagesProperties[imagePropertyLinearIndex] = forceLinear;
             }
-            
+
             Texture2D texture = CreateTexture2DFrom(imagesProperties, samplerProperties);
             if (textureInfo.TryGetValue("name", TokenType.String, out DataToken nameToken))
             {
@@ -2525,6 +2556,21 @@ namespace VoyageVoyage
             assetInfoObject.assetName = DictOptString(vrmMetaDataDict, "name", "");
         }
 
+        DataList FilterExtensionsUsedWithManaged(DataList extensionsUsedInGlb)
+        {
+            DataList ret = new DataList();
+            int nExtensionsUsed = extensionsUsedInGlb.Count;
+            for (int i = 0; i < nExtensionsUsed; i++)
+            {
+                bool gotString = extensionsUsedInGlb.TryGetValue(i, TokenType.String, out DataToken stringToken);
+                if (!gotString) { continue; }
+
+                if (extensionsHandledWithPlugins.Contains(stringToken.String)) { ret.Add(stringToken); }
+                if (defaultManagedExtensions.Contains(stringToken.String)) { ret.Add(stringToken); }
+            }
+            return ret;
+        }
+
         int ParseAssetData(int _)
         {
             if (glbJson == null)
@@ -2556,6 +2602,16 @@ namespace VoyageVoyage
             assetInfoObject.minVersion = DictOptString(assetInfo, "minVersion", "");
 
             TryParseVRMMetaData();
+
+            DataList extensionsUsedList = DictOptList(glbJson, "extensionsUsed");
+            DataList extensionsActuallyUsed = FilterExtensionsUsedWithManaged(extensionsUsedList);
+            int nExtensionsActuallyUsed = extensionsActuallyUsed.Count;
+            string[] newExtensionsUsed = new string[nExtensionsActuallyUsed];
+            for (int i = 0; i < nExtensionsActuallyUsed; i++)
+            {
+                newExtensionsUsed[i] = extensionsActuallyUsed[i].String;
+            }
+            extensionsUsed = newExtensionsUsed;
 
             return sectionComplete;
         }
@@ -2763,12 +2819,22 @@ namespace VoyageVoyage
             TriggerNextIteration();
         }
 
-        public void PrintStateHandlers()
+
+        public void AddReceiver(UdonSharpBehaviour behaviour)
         {
-            foreach (var handler in stateReceivers)
-            {
-                ReportInfo("PrintStateHandlers", $"{handler.name}");
-            }
+            stateReceivers = stateReceivers.Append(behaviour);
+        }
+
+    }
+
+    public static class ArrayHelpers
+    {
+        public static T[] Append<T>(this T[] arr, T value)
+        {
+            T[] newArr = new T[arr.Length + 1];
+            Array.Copy(arr, newArr, arr.Length);
+            newArr[arr.Length] = value;
+            return newArr;
         }
     }
 
