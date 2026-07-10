@@ -1,92 +1,82 @@
-﻿
+
 using UdonSharp;
 using UnityEngine;
+using UnityEngine.UI;
+using VRC.SDK3.Components;
+using VRC.SDK3.StringLoading;
 using VRC.SDKBase;
+using VRC.Udon.Common.Interfaces;
 
 namespace VoyageVoyage
 {
+    [UdonBehaviourSyncMode(BehaviourSyncMode.Manual)]
     public class LoaderProxy : UdonSharpBehaviour
     {
         public VRCUrl userURL;
-        public GLBLoader glbLoader;
+        public VRCUrlInputField inputField;
+        public Text urlText;
+
+        [HideInInspector]
+        [SerializeField]
+        [UdonSynced]
+        VRCUrl syncedURL;
+        GLBLoader glbLoader = null;
         public GameObject loaderPrefab;
-        public HierarchyManager glbHierarchyManager;
         public UIPanel panel;
         public UdonSharpBehaviour assetInfoPanel;
-        Transform glbLoaderParent;
-
-        private void OnEnable()
-        {
-            if (glbLoader == null)
-            {
-                Debug.LogError("[LoaderProxy] GLB Loader not set !");
-                enabled = false;
-                return;
-            }
-            glbLoaderParent = glbLoader.transform.parent;
-            enabled = false;
-        }
-
-        public bool ScriptIsAlive()
-        {
-            if (glbLoader == null) return false;
-            float currentTime = Time.time;
-            return glbLoader.IsAlive(currentTime) == currentTime;
-        }
+        public Transform glbLoaderParent;
 
         public void DestroyLoader()
         {
+            if (glbLoader == null) return;
             GameObject glbLoaderObject = glbLoader.gameObject;
             Destroy(glbLoaderObject);
         }
 
         public void InstantiateNewLoader()
         {
+            Debug.Log("<color=orange>New loader !</color>");
             GameObject newGLBLoaderObject = Instantiate(loaderPrefab, glbLoaderParent);
             GLBLoader newLoader = newGLBLoaderObject.GetComponent<GLBLoader>();
             glbLoader = newLoader;
             assetInfoPanel.SetProgramVariable("loader", glbLoader);
-            glbHierarchyManager = glbLoader.GetComponentInChildren<HierarchyManager>();
 
-            newLoader.stateReceivers = new UdonSharpBehaviour[] { panel, glbHierarchyManager, assetInfoPanel };
+            /*newLoader.AddReceiver(panel);
+            newLoader.AddReceiver(glbHierarchyManager);
+            newLoader.AddReceiver(assetInfoPanel);*/
         }
 
-        public void OwnColliderStateOn()
+        public override void OnStringLoadSuccess(IVRCStringDownload result)
         {
-            glbHierarchyManager.OwnColliderStateOn();
+            if (glbLoader == null) return;
+            byte[] data = result.ResultBytes;
+            Debug.Log("<color=orange>Loading !</color>");
+            glbLoader.Load(data);
+
+            if (inputField != null) inputField.interactable = true;
         }
 
-        public void OwnColliderStateOff()
+        public override void OnStringLoadError(IVRCStringDownload result)
         {
-            glbHierarchyManager.OwnColliderStateOff();
+            Debug.LogError($"Could not download {syncedURL} - Code {result.ErrorCode} : {result.Error}");
+            if (inputField != null) inputField.interactable = true;
         }
 
-        public void ChildrenColliderStateOn()
+        void StartDownload(VRCUrl url)
         {
-            glbHierarchyManager.ChildrenColliderStateOn();
-        }
-
-        public void ChildrenColliderStateOff()
-        {
-            glbHierarchyManager.ChildrenColliderStateOff();
-        }
-
-        void StartDownload()
-        {
-            glbLoader.userURL = userURL;
-            glbLoader.UserURLUpdated();
+            if (inputField != null) inputField.interactable = false;
+            VRCStringDownloader.LoadUrl(url, (IUdonEventReceiver)this);
         }
 
         public void UserURLUpdated()
         {
-            if (glbLoader == null || !ScriptIsAlive())
-            {
-                DestroyLoader();
-                InstantiateNewLoader();
-            }
+            Debug.Log("<color=cyan>USER URL UPDATED !</color>");
 
-            StartDownload();
+            DestroyLoader();
+            InstantiateNewLoader();
+            StartDownload(userURL);
         }
+
     }
 }
 

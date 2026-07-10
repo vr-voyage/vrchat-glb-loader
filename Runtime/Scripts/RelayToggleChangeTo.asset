@@ -12,7 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: c333ccfdd0cbdbc4ca30cef2dd6e6b9b, type: 3}
   m_Name: RelayToggleChangeTo
   m_EditorClassIdentifier: 
-  serializedUdonProgramAsset: {fileID: 11400000, guid: 37c40b7dcd1a01e41a50f8d65700a86f,
+  serializedUdonProgramAsset: {fileID: 11400000, guid: ca51d28e71413364f8c84073a0794427,
     type: 2}
   udonAssembly: 
   assemblyError: 

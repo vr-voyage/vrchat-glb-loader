@@ -1,4 +1,4 @@
-﻿
+
 using UdonSharp;
 using UnityEngine;
 using VRC.SDKBase;
@@ -45,6 +45,7 @@ namespace VoyageVoyage
 
             syncedUrl = url;
             lastUrl = url;
+            Debug.Log("<color=cyan>Syncing url from GLBLoaderURLInput</color>");
             Notify();
 
             if (WeAreTheOwner())

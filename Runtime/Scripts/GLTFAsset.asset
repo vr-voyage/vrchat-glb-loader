@@ -12,7 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: c333ccfdd0cbdbc4ca30cef2dd6e6b9b, type: 3}
   m_Name: GLTFAsset
   m_EditorClassIdentifier: 
-  serializedUdonProgramAsset: {fileID: 11400000, guid: f9ca27528b768f4418461edd058f166c,
+  serializedUdonProgramAsset: {fileID: 11400000, guid: 20d45db191e9be04196cba13cc64d3a6,
     type: 2}
   udonAssembly: 
   assemblyError: 

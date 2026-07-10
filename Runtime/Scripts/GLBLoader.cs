@@ -151,6 +151,30 @@ namespace VoyageVoyage
 
         void ResetState()
         {
+            Debug.Log("<color=orange>Called reset !</color>");
+            m_accessorTypesInfo = new DataDictionary();
+            m_accessorTypesInfo["MAT4"] = 16;
+            m_accessorTypesInfo["VEC4"] = 4;
+            m_accessorTypesInfo["VEC3"] = 3;
+            m_accessorTypesInfo["VEC2"] = 2;
+            m_accessorTypesInfo["SCALAR"] = 1;
+
+            // See https://kcoley.github.io/glTF/specification/2.0/
+            // 5120 is BYTE
+            m_accessorTypesInfo[5120] = 1;
+            // 5121 is UNSIGNED_BYTE
+            m_accessorTypesInfo[5121] = 1;
+            // 5122 is SHORT
+            m_accessorTypesInfo[5122] = 2;
+            // 5123 is UNSIGNED SHORT
+            m_accessorTypesInfo[5123] = 2;
+            // 5215 is UNSIGNED INT
+            m_accessorTypesInfo[5125] = 4;
+            // 5126 is FLOAT
+            m_accessorTypesInfo[5126] = 4;
+
+            GenerateMaterialsExtensionsDictionary();
+
             currentState = -1;
             currentIndex = -1;
             glb = new byte[0];
@@ -351,14 +375,15 @@ namespace VoyageVoyage
 
         public void Load(byte[] glbData)
         {
-            StartParsingGlb(glbData);
+            Debug.Log("<color=orange>Called Load on GLBLoader</color>");
+            Clear();
+            glb = glbData;
+            StartParsing();
         }
 
         public void StartParsingGlb(byte[] glbData)
         {
-            Clear();
-            glb = glbData;
-            StartParsing();
+            Load(glbData);
         }
 
         void RemoveAllChildrenOf(Transform t)
@@ -395,33 +420,6 @@ namespace VoyageVoyage
         void ReportInfo(string tag, string message)
         {
             Debug.Log($"<color=green>[{tag}] {message}</color>");
-        }
-
-
-        void Start()
-        {
-            m_accessorTypesInfo = new DataDictionary();
-            m_accessorTypesInfo["MAT4"] = 16;
-            m_accessorTypesInfo["VEC4"] = 4;
-            m_accessorTypesInfo["VEC3"] = 3;
-            m_accessorTypesInfo["VEC2"] = 2;
-            m_accessorTypesInfo["SCALAR"] = 1;
-
-            // See https://kcoley.github.io/glTF/specification/2.0/
-            // 5120 is BYTE
-            m_accessorTypesInfo[5120] = 1;
-            // 5121 is UNSIGNED_BYTE
-            m_accessorTypesInfo[5121] = 1;
-            // 5122 is SHORT
-            m_accessorTypesInfo[5122] = 2;
-            // 5123 is UNSIGNED SHORT
-            m_accessorTypesInfo[5123] = 2;
-            // 5215 is UNSIGNED INT
-            m_accessorTypesInfo[5125] = 4;
-            // 5126 is FLOAT
-            m_accessorTypesInfo[5126] = 4;
-
-            GenerateMaterialsExtensionsDictionary();
         }
 
         void DumpList(string name, DataList list)
@@ -1549,26 +1547,26 @@ namespace VoyageVoyage
             return true;
         }
 
-        void SetupMesh(GameObject node, int meshIndex, int maxMeshIndex)
+        int SetupMesh(GameObject node, int meshIndex, int maxMeshIndex)
         {
-            if ((meshIndex < 0) | (meshIndex > maxMeshIndex)) return;
+            if ((meshIndex < 0) | (meshIndex > maxMeshIndex)) return 1;
             object meshInfoArray = m_meshesInfo[meshIndex];
-            if (meshInfoArray == null) return;
+            if (meshInfoArray == null) return 1;
 
             object[] meshInfo = (object[])m_meshesInfo[meshIndex];
-            if (meshInfo == null) return;
+            if (meshInfo == null) return 1;
 
             // FIXME Magic values
             Mesh mesh = (Mesh)meshInfo[0];
             int[] materialsIndices = (int[])meshInfo[1];
 
-            if (mesh == null) return;
+            if (mesh == null) return 1;
             mesh.RecalculateBounds();
 
             MeshFilter filter = node.GetComponent<MeshFilter>();
             filter.sharedMesh = mesh;
 
-            if (materialsIndices == null) return;
+            if (materialsIndices == null) return 0;
             MeshRenderer renderer = filter.GetComponent<MeshRenderer>();
 
             int nIndices = materialsIndices.Length;
@@ -1590,6 +1588,7 @@ namespace VoyageVoyage
             }
             renderer.sharedMaterials = sharedMaterials;
 
+            return 0;
             /*BoxCollider boxCollider = node.GetComponent<BoxCollider>();
             Vector3 center = renderer.bounds.center;
             center.x *= -1;
@@ -1672,7 +1671,12 @@ namespace VoyageVoyage
 
                 GameObject node = nodesObjects[n];
 
-                SetupMesh(node, meshIndex, maxMeshIndex);
+                int setupMeshRet = SetupMesh(node, meshIndex, maxMeshIndex);
+                if (setupMeshRet == 1)
+                {
+                    Destroy(node.GetComponent<MeshFilter>());
+                    Destroy(node.GetComponent<MeshRenderer>());
+                }
 
                 node.name = name;
 
@@ -2757,7 +2761,6 @@ namespace VoyageVoyage
 
         public void ParseGLB()
         {
-
             if (!StillHaveTime())
             {
                 limit = Time.realtimeSinceStartup + Time.fixedDeltaTime / 2;
@@ -2765,6 +2768,7 @@ namespace VoyageVoyage
 
             //ReportInfo("ParseGLB", $"CurrentState : {currentState} - Index : {currentIndex}");
 
+            Debug.Log($"<color=cyan>GLB Loader : State {currentState}</color>");
             switch (currentState)
             {
                 case 0:
