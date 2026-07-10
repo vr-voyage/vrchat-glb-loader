@@ -151,7 +151,6 @@ namespace VoyageVoyage
 
         void ResetState()
         {
-            Debug.Log("<color=orange>Called reset !</color>");
             m_accessorTypesInfo = new DataDictionary();
             m_accessorTypesInfo["MAT4"] = 16;
             m_accessorTypesInfo["VEC4"] = 4;
@@ -209,7 +208,6 @@ namespace VoyageVoyage
                 string extensionName = invalidExtensionName;
                 if (handler != null) { extensionName = handler.HandledExtensionName(); }
                 extensionsHandledWithPlugins[h] = extensionName;
-                ReportInfo("GenerateMaterialsExtensionsDictionary", $"Added {extensionName} to the list !");
             }
 
         }
@@ -375,7 +373,6 @@ namespace VoyageVoyage
 
         public void Load(byte[] glbData)
         {
-            Debug.Log("<color=orange>Called Load on GLBLoader</color>");
             Clear();
             glb = glbData;
             StartParsing();
@@ -2768,7 +2765,6 @@ namespace VoyageVoyage
 
             //ReportInfo("ParseGLB", $"CurrentState : {currentState} - Index : {currentIndex}");
 
-            Debug.Log($"<color=cyan>GLB Loader : State {currentState}</color>");
             switch (currentState)
             {
                 case 0:

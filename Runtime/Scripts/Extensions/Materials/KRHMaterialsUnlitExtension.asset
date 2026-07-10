@@ -12,7 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: c333ccfdd0cbdbc4ca30cef2dd6e6b9b, type: 3}
   m_Name: KRHMaterialsUnlitExtension
   m_EditorClassIdentifier: 
-  serializedUdonProgramAsset: {fileID: 11400000, guid: f4b3f244b9cfeb04ea712d21175e7b84,
+  serializedUdonProgramAsset: {fileID: 11400000, guid: 26ffde0a546eb95489ed72fbb5a13b87,
     type: 2}
   udonAssembly: 
   assemblyError: 

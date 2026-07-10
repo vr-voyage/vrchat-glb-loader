@@ -61,6 +61,7 @@ namespace VoyageVoyage
         public override void OnDeserialization()
         {
             if (!ValidURL(syncedUrl)) return;
+            inputField.SetUrl(syncedUrl);
             Notify();
         }
 

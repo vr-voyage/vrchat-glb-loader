@@ -12,7 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: c333ccfdd0cbdbc4ca30cef2dd6e6b9b, type: 3}
   m_Name: GLBLoader
   m_EditorClassIdentifier: 
-  serializedUdonProgramAsset: {fileID: 11400000, guid: cb1b8e25f477edf47868bbd996d6d2d8,
+  serializedUdonProgramAsset: {fileID: 11400000, guid: 734aa6b3441d5c74faf9b57fdeed4668,
     type: 2}
   udonAssembly: 
   assemblyError: 

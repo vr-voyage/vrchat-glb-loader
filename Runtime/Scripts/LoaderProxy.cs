@@ -21,10 +21,12 @@ namespace VoyageVoyage
         [UdonSynced]
         VRCUrl syncedURL;
         GLBLoader glbLoader = null;
+        HierarchyManager glbHierarchyManager = null;
         public GameObject loaderPrefab;
         public UIPanel panel;
         public UdonSharpBehaviour assetInfoPanel;
         public Transform glbLoaderParent;
+
 
         public void DestroyLoader()
         {
@@ -41,9 +43,11 @@ namespace VoyageVoyage
             glbLoader = newLoader;
             assetInfoPanel.SetProgramVariable("loader", glbLoader);
 
-            /*newLoader.AddReceiver(panel);
+            glbHierarchyManager = glbLoader.gameObject.GetComponentInChildren<HierarchyManager>(true);
+
+            newLoader.AddReceiver(panel);
             newLoader.AddReceiver(glbHierarchyManager);
-            newLoader.AddReceiver(assetInfoPanel);*/
+            newLoader.AddReceiver(assetInfoPanel);
         }
 
         public override void OnStringLoadSuccess(IVRCStringDownload result)
@@ -64,7 +68,11 @@ namespace VoyageVoyage
 
         void StartDownload(VRCUrl url)
         {
-            if (inputField != null) inputField.interactable = false;
+            if (inputField != null)
+            {
+                inputField.interactable = false;
+                inputField.SetUrl(url);
+            }
             VRCStringDownloader.LoadUrl(url, (IUdonEventReceiver)this);
         }
 

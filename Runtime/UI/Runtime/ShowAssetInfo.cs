@@ -1,4 +1,4 @@
-﻿
+
 using UdonSharp;
 using VoyageVoyage;
 
@@ -14,21 +14,42 @@ public class ShowAssetInfo : UdonSharpBehaviour
     public TMPro.TextMeshProUGUI images;
     public TMPro.TextMeshProUGUI materials;
 
+    void SetText(TMPro.TextMeshProUGUI gui, string text)
+    {
+        if (gui != null && text != null) gui.text = text;
+    }
+
+    void Clear()
+    {
+        SetText(copyright, "");
+        SetText(generator, "");
+        SetText(assetName, "");
+        SetText(triangles, "");
+        SetText(images, "");
+        SetText(materials, "");
+    }
+
     public void SceneLoaded()
     {
         if (loader == null) { return; }
-        if (copyright == null || generator == null) { return; }
         var assetInfoObject = loader.assetInfoObject;
         if (assetInfoObject == null) { return; }
-        copyright.text = assetInfoObject.copyright;
-        generator.text = assetInfoObject.generator;
 
-        if (assetName == null || triangles == null || images == null || materials == null) { return; }
+        gameObject.SetActive(true);
 
-        assetName.text = assetInfoObject.assetName;
-        triangles.text = loader.GetTrianglesCount().ToString();
-        images.text = loader.GetImagesCount().ToString();
-        materials.text = loader.GetMaterialsCount().ToString();
+        SetText(copyright, assetInfoObject.copyright);
+        SetText(generator, assetInfoObject.generator);
+
+        SetText(assetName, assetInfoObject.assetName);
+        SetText(triangles, loader.GetTrianglesCount().ToString());
+        SetText(images, loader.GetImagesCount().ToString());
+        SetText(materials, loader.GetMaterialsCount().ToString());
         
+    }
+
+    public void LoadingScene()
+    {
+        Clear();
+        gameObject.SetActive(false);
     }
 }
