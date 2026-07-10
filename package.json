@@ -1,11 +1,11 @@
 {
   "name": "io.github.vr-voyage.vrchat.glb-loader",
-  "displayName": "Voyage 3D Model Loader",
-  "version": "1.1.2",
-  "description": "VRChat World scripts and gimmicks to load 3D Models files at runtime. Currently only support GLB and VRM to a small extent.",
+  "displayName": "Voyage GLB Loader",
+  "version": "1.2.0",
+  "description": "Provides an API to load GLTF Binary and VRM models in-game. This also provides a quick download UI sample.",
   "gitDependencies": {},
   "vpmDependencies": {
-    "com.vrchat.worlds": ">=3.5.2-beta.2",
+    "com.vrchat.worlds": ">=3.6.0",
     "io.github.vr-voyage.vrchat.glb-loader.shaders": "1.0.2"
   },
   "repository": "https://github.com/vr-voyage/vrchat-glb-loader",
