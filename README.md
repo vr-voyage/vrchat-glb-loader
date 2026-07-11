@@ -11,9 +11,14 @@ If you are looking for the tablet gimmick, install ["Voyage 3D Model Loader tabl
 
 <img width="4096" height="2097" alt="Vket2026Summer-Last-3D-Mode-Loader" src="https://github.com/user-attachments/assets/58a41d5e-d2b7-4d9f-8337-84522e43f142" />
 
-I highly recommend to use that gimmick if you want a simple 3D model loading gimmick in your world, that anybody can use.
+That gimmick is a far better alternative to the very ugly UI that comes with this project.  
+If you want a simple 3D model loading gimmick in your world, that anybody can use, give it a try !
 
-That tablet comes with a node hierarchy view, and a node inspector that can move, rotate and scale each node, while providing a simple (read-only for the moment) materials inspector.  
+That tablet comes with a :
+* A node hierarchy view
+* A node inspector that can move, rotate and scale each node
+* A read-only materials inspector.
+
 All with synchronisation of URL and spawn point transforms.
 
 # About
@@ -39,7 +44,7 @@ The following are not supported yet :
 
 ## Download
 
-[Download the latest release here](https://github.com/vr-voyage/vrchat-glb-loader/releases/latest)
+Use VCC (see above)
 
 ## Demo video
 
