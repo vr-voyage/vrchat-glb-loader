@@ -1,3 +1,21 @@
+# VPM links
+
+To install this gimmick through VCC, either :
+* Paste the VCC link in your address bar : vcc://vpm/addRepo?url=https%3A%2F%2Fvr-voyage.github.io%2Fvpm-repository%2Findex.json
+* Add this repository link directly : https://vr-voyage.github.io/vpm-repository/index.json
+* Check out the VPM listing at https://vr-voyage.github.io/vpm-repository/ and click "Add to VCC"
+
+# Tablet gimmick
+
+If you are looking for the tablet gimmick, install ["Voyage 3D Model Loader tablet"](https://github.com/vr-voyage/vrchat-3d-model-loader-tablet).
+
+<img width="4096" height="2097" alt="Vket2026Summer-Last-3D-Mode-Loader" src="https://github.com/user-attachments/assets/58a41d5e-d2b7-4d9f-8337-84522e43f142" />
+
+I highly recommend to use that gimmick if you want a simple 3D model loading gimmick in your world, that anybody can use.
+
+That tablet comes with a node hierarchy view, and a node inspector that can move, rotate and scale each node, while providing a simple (read-only for the moment) materials inspector.  
+All with synchronisation of URL and spawn point transforms.
+
 # About
 
 ![rect66626](https://github.com/user-attachments/assets/91a1a71b-bc9b-412b-8b1d-8eee81eb0db1)
